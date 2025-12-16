@@ -1,4 +1,38 @@
 services:
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: api
+    ports:
+      - "8087:8087"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - migrate
+    env_file:
+      - .env
+    networks:
+      - backend
+    restart: always
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: worker
+    depends_on:
+      - rabbitmq
+      - postgres
+      - migrate
+    env_file:
+      - .env
+    networks:
+      - backend
+    restart: always
+
   postgres:
     image: postgres:15.15-trixie
     container_name: postgres
@@ -34,37 +68,6 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
-    networks:
-      - backend
-
-  api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    container_name: api
-    ports:
-      - "8087:8087"
-    depends_on:
-      - postgres
-      - redis
-      - rabbitmq
-      - migrate
-    env_file:
-      - .env
-    networks:
-      - backend
-
-  worker:
-    build:
-      context: .
-      dockerfile: docker/worker.Dockerfile
-    container_name: worker
-    depends_on:
-      - rabbitmq
-      - postgres
-      - migrate
-    env_file:
-      - .env
     networks:
       - backend
 
