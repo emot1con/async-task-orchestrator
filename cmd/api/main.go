@@ -42,20 +42,19 @@ func main() {
 		}
 	}()
 
-	producerChannel, err := queue.CreateChannel(conn)
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to create RabbitMQ channel")
-	}
-	defer func() {
-		if err := producerChannel.Close(); err != nil {
-			logrus.WithError(err).Fatal("Failed to close RabbitMQ channel")
-		}
-	}()
+	// producerChannel, err := queue.CreateChannel(conn)
+	// if err != nil {
+	// 	logrus.WithError(err).Fatal("Failed to create RabbitMQ channel")
+	// }
 
-	_, err = queue.DeclareQueue(producerChannel, "task_queue")
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to declare RabbitMQ queue")
-	}
+	// _, err = queue.DeclareQueue(producerChannel, "task_queue")
+	// if err != nil {
+	// 	logrus.WithError(err).Fatal("Failed to declare RabbitMQ queue")
+	// }
+
+	// if err := producerChannel.Close(); err != nil {
+	// 	logrus.WithError(err).Fatal("Failed to close RabbitMQ channel")
+	// }
 
 	r := gin.Default()
 

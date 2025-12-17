@@ -10,12 +10,12 @@ import (
 )
 
 type TaskService struct {
-	repo *TaskRepository
+	repo TaskRepositoryInterface
 	conn *amqp.Connection
 	DB   *sql.DB
 }
 
-func NewTaskService(repo *TaskRepository, db *sql.DB, conn *amqp.Connection) *TaskService {
+func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, conn *amqp.Connection) *TaskService {
 	return &TaskService{
 		repo: repo,
 		DB:   db,
@@ -29,7 +29,12 @@ func (s *TaskService) CreateTask(task *Task) error {
 	}
 
 	if err := utils.WithTransaction(s.DB, func(tx *sql.Tx) error {
-		return s.repo.Create(tx, task)
+		taskID, err := s.repo.Create(tx, task)
+		if err != nil {
+			return err
+		}
+		task.ID = taskID
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -46,8 +51,12 @@ func (s *TaskService) CreateTask(task *Task) error {
 		false,
 		false,
 		amqp.Publishing{
-			ContentType: "text/plain",
-			Body:        []byte(task.TaskType),
+			ContentType: "application/json",
+			Body: []byte(`{
+			"id": ` + fmt.Sprintf("%d", task.ID) + `,
+			"user_id": ` + fmt.Sprintf("%d", task.UserID) + `,
+			"task_type": ` + fmt.Sprintf("%q", task.TaskType) + `
+		}`),
 		},
 	)
 }

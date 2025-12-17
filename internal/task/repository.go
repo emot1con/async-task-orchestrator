@@ -7,34 +7,48 @@ import (
 
 type TaskRepository struct{}
 
-func NewTaskRepository() *TaskRepository {
+type TaskRepositoryInterface interface {
+	Create(tx *sql.Tx, task *Task) (int, error)
+	GetByID(db *sql.DB, id int) (*Task, error)
+	MarkProcessing(tx *sql.Tx, id int) error
+	MarkSuccess(tx *sql.Tx, id int, resultFile string) error
+	MarkFailed(tx *sql.Tx, id int, errorMessage string) error
+}
+
+func NewTaskRepository() TaskRepositoryInterface {
 	return &TaskRepository{}
 }
 
 func (r *TaskRepository) Create(
 	tx *sql.Tx,
 	task *Task,
-) error {
+) (int, error) {
 	query := `
 		INSERT INTO tasks (
-			id, user_id, task_type, status, created_at, updated_at
+			user_id, task_type, status, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		VALUES ($1, $2, $3, NOW(), NOW())
+		RETURNING id
 	`
 
-	_, err := tx.Exec(
+	var id int
+	err := tx.QueryRow(
 		query,
-		task.ID,
 		task.UserID,
 		task.TaskType,
 		task.Status,
-	)
-	return err
+	).Scan(&id)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
 }
 
 func (r *TaskRepository) GetByID(
 	db *sql.DB,
-	id string,
+	id int,
 ) (*Task, error) {
 	query := `
 		SELECT
@@ -69,7 +83,7 @@ func (r *TaskRepository) GetByID(
 
 func (r *TaskRepository) MarkProcessing(
 	tx *sql.Tx,
-	id string,
+	id int,
 ) error {
 	query := `
 		UPDATE tasks
@@ -82,7 +96,7 @@ func (r *TaskRepository) MarkProcessing(
 
 func (r *TaskRepository) MarkSuccess(
 	tx *sql.Tx,
-	id string,
+	id int,
 	resultFile string,
 ) error {
 	query := `
@@ -98,7 +112,7 @@ func (r *TaskRepository) MarkSuccess(
 
 func (r *TaskRepository) MarkFailed(
 	tx *sql.Tx,
-	id string,
+	id int,
 	errorMessage string,
 ) error {
 	query := `

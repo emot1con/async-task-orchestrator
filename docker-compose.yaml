@@ -12,6 +12,7 @@ services:
       - redis
       - rabbitmq
       - migrate
+      - worker
     env_file:
       - .env
     networks:
@@ -51,6 +52,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: always
 
   redis:
     image: redis:latest

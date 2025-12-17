@@ -3,7 +3,7 @@ package task
 import "time"
 
 type Task struct {
-	ID           string
+	ID           int
 	UserID       int
 	TaskType     string
 	Status       string
@@ -13,14 +13,15 @@ type Task struct {
 	UpdatedAt    time.Time
 }
 
-// type TaskPayload struct {
-// 	UserID   int
-// 	TaskType string
-// }
+type TaskPayload struct {
+	ID       int
+	UserID   int
+	TaskType string
+}
 
-// type TaskResponse struct {
-// 	ID         string
-// 	Status     string
-// 	ResultFile *string
-// 	Error      *string
-// }
+type TaskResponse struct {
+	ID         int
+	Status     string
+	ResultFile *string
+	Error      *string
+}
