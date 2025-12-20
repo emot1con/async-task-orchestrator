@@ -14,9 +14,9 @@ type Task struct {
 }
 
 type TaskPayload struct {
-	ID       int
-	UserID   int
-	TaskType string
+	ID       int    `json:"id"`
+	UserID   int    `json:"user_id"`
+	TaskType string `json:"task_type"`
 }
 
 type TaskResponse struct {

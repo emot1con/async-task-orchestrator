@@ -37,12 +37,13 @@ func main() {
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to create RabbitMQ channel")
 	}
-	if err := consumerChannel.Close(); err != nil {
-		logrus.WithError(err).Fatal("Failed to close RabbitMQ channel")
-	}
 
 	if _, err := queue.DeclareQueue(consumerChannel, "task_queue"); err != nil {
 		logrus.WithError(err).Fatal("Failed to declare RabbitMQ queue")
+	}
+
+	if err := consumerChannel.Close(); err != nil {
+		logrus.WithError(err).Fatal("Failed to close RabbitMQ channel")
 	}
 
 	for i := 1; i <= 3; i++ {

@@ -63,6 +63,8 @@ services:
       - redisdata:/data
     networks:
       - backend
+    restart: always
+    
 
   rabbitmq:
     image: rabbitmq:management-alpine
@@ -72,6 +74,8 @@ services:
       - "15672:15672"
     networks:
       - backend
+    restart: always
+    
 
   migrate:
     image: migrate/migrate

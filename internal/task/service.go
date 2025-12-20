@@ -9,13 +9,17 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+type TaskServiceInterface interface {
+	CreateTask(task *Task) error
+}
+
 type TaskService struct {
 	repo TaskRepositoryInterface
 	conn *amqp.Connection
 	DB   *sql.DB
 }
 
-func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, conn *amqp.Connection) *TaskService {
+func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, conn *amqp.Connection) TaskServiceInterface {
 	return &TaskService{
 		repo: repo,
 		DB:   db,

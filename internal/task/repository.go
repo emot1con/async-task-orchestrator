@@ -3,6 +3,8 @@ package task
 import (
 	"database/sql"
 	"errors"
+
+	"github.com/sirupsen/logrus"
 )
 
 type TaskRepository struct{}
@@ -68,6 +70,7 @@ func (r *TaskRepository) GetByID(
 		&t.TaskType,
 		&t.Status,
 		&t.ResultFile,
+		&t.ErrorMessage,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
@@ -85,6 +88,7 @@ func (r *TaskRepository) MarkProcessing(
 	tx *sql.Tx,
 	id int,
 ) error {
+	logrus.Info("Marking task as PROCESSING: ", id)
 	query := `
 		UPDATE tasks
 		SET status = 'PROCESSING', updated_at = NOW()

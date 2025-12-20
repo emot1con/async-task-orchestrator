@@ -79,26 +79,38 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			}
 		}
 
+		logrus.Infof(
+			"Worker %d processing task=%s for user=%d (retry: %d)",
+			id,
+			payload.TaskType,
+			payload.UserID,
+			retryCount,
+		)
+
+		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-			logrus.Infof(
-				"Worker %d processing task=%s for user=%d (retry: %d)",
-				id,
-				payload.TaskType,
-				payload.UserID,
-				retryCount,
-			)
+			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, payload.ID)
+			return repo.MarkProcessing(tx, payload.ID)
+		}); err != nil {
+			logrus.WithError(err).Error("Failed to mark task as processing")
+			msg.Nack(false, true)
+			continue
+		}
 
-			if err := repo.MarkProcessing(tx, payload.ID); err != nil {
-				return err
-			}
+		// Execute task (outside transaction)
+		taskErr := handleTask(&payload, id)
 
-			if err := handleTask(&payload, id); err != nil {
-				logrus.WithError(err).Error("task failed")
-				repo.MarkFailed(tx, payload.ID, err.Error())
-				return err
+		// Transaction 2: Mark as SUCCESS or FAILED
+		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
+			if taskErr != nil {
+				logrus.WithError(taskErr).Error("task failed")
+				return repo.MarkFailed(tx, payload.ID, taskErr.Error())
 			}
 			return repo.MarkSuccess(tx, payload.ID, "result.txt")
 		}); err != nil {
+			logrus.WithError(err).Error("Failed to update task status")
+
+			// Check retry logic
 			if retryCount >= 3 {
 				if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 					return repo.MarkFailed(tx, payload.ID, "max retries reached")
@@ -120,6 +132,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			msg.Ack(false)
 			continue
 		}
+
 		msg.Ack(false)
 	}
 }
