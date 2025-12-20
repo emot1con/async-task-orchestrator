@@ -45,8 +45,8 @@ func main() {
 
 	r := gin.Default()
 
-	// Setup task routes
-	task.SetupRoutes(r, db, conn)
+	// Setup task routes with Redis cache
+	task.SetupRoutes(r, db, conn, rdb)
 
 	srv := &http.Server{
 		Addr:    ":8087",

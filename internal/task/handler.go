@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -15,9 +16,9 @@ type CreateTaskRequest struct {
 }
 
 // SetupRoutes setup task routes dengan handler langsung
-func SetupRoutes(r *gin.Engine, db *sql.DB, conn *amqp.Connection) {
+func SetupRoutes(r *gin.Engine, db *sql.DB, conn *amqp.Connection, rdb *redis.Client) {
 	repo := NewTaskRepository()
-	service := NewTaskService(repo, db, conn)
+	service := NewTaskService(repo, db, conn, rdb)
 
 	api := r.Group("/api/v1")
 	{
@@ -55,7 +56,7 @@ func SetupRoutes(r *gin.Engine, db *sql.DB, conn *amqp.Connection) {
 				return
 			}
 
-			task, err := repo.GetByID(db, id)
+			task, err := service.GetTask(id)
 			if err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
 				return
@@ -71,6 +72,23 @@ func SetupRoutes(r *gin.Engine, db *sql.DB, conn *amqp.Connection) {
 				"created_at":    task.CreatedAt,
 				"updated_at":    task.UpdatedAt,
 			})
+		})
+
+		// Get tasks by user
+		api.GET("/users/:user_id/tasks", func(c *gin.Context) {
+			userID, err := strconv.Atoi(c.Param("user_id"))
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+				return
+			}
+
+			tasks, err := service.GetTasks(userID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tasks"})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"tasks": tasks, "count": len(tasks)})
 		})
 	}
 }
