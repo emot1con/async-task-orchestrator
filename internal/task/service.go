@@ -86,6 +86,7 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 	if err == nil && cachedData != nil {
 		var task Task
 		if json.Unmarshal(cachedData, &task) == nil {
+			logrus.Info("cache hit for task ", taskID)
 			return &task, nil
 		}
 	}
@@ -96,6 +97,7 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 		return nil, err
 	}
 
+	logrus.Info("cache miss for task ", taskID)
 	// Set cache (ignore error)
 	s.cache.Set(ctx, cacheKey, task)
 
