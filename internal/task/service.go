@@ -81,7 +81,6 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 
 	// Try cache first
 	cacheKey := cache.TaskKey(taskID)
-
 	cachedData, err := s.cache.Get(ctx, cacheKey)
 	if err == nil && cachedData != nil {
 		var task Task

@@ -1,6 +1,7 @@
 package user
 
 import (
+	"fmt"
 	"net/http"
 	"task_handler/internal/auth"
 
@@ -12,21 +13,10 @@ type UserController struct {
 	jwtSecret   string
 }
 
-func NewUserController(userService UserServiceInterface) *UserController {
+func NewUserController(userService UserServiceInterface, jwtSecret string) *UserController {
 	return &UserController{
 		userService: userService,
-	}
-}
-
-// SetupRoutes setup auth routes (register, login, refresh)
-func (a *UserController) SetupRoutes(r *gin.Engine, userService UserServiceInterface) {
-	controller := NewUserController(userService)
-
-	authGroup := r.Group("/auth")
-	{
-		authGroup.POST("/register", controller.Register)
-		authGroup.POST("/login", controller.Login)
-		authGroup.POST("/refresh", controller.RefreshToken)
+		jwtSecret:   jwtSecret,
 	}
 }
 
@@ -52,7 +42,7 @@ func (a *UserController) Register(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create user: %v", err)})
 		return
 	}
 
@@ -84,7 +74,7 @@ func (a *UserController) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
-// RefreshToken handles refresh token requests
+// RefreshToken handles refresh token requests with token rotation
 func (a *UserController) RefreshToken(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token" binding:"required"`
@@ -95,11 +85,27 @@ func (a *UserController) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// Generate new access token from refresh token
-	accessToken, err := auth.RefreshAccessToken(req.RefreshToken, a.jwtSecret)
+	// Option 1: Simple - Only refresh access token (refresh token stays same)
+	// accessToken, err := auth.RefreshAccessToken(req.RefreshToken, a.jwtSecret)
+	// if err != nil {
+	// 	if errors.Is(err, auth.ErrExpiredToken) {
+	// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token expired, please login again"})
+	// 	} else {
+	// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
+	// 	}
+	// 	return
+	// }
+	// c.JSON(http.StatusOK, gin.H{
+	// 	"access_token": accessToken,
+	// 	"expires_in":   900,
+	// })
+
+	// Option 2: Secure - Refresh both tokens (token rotation)
+	// This invalidates old refresh token for better security
+	tokenPair, err := auth.RefreshTokenPair(req.RefreshToken, a.jwtSecret)
 	if err != nil {
 		if err == auth.ErrExpiredToken {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token expired"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token expired, please login again"})
 		} else {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
 		}
@@ -107,7 +113,9 @@ func (a *UserController) RefreshToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"access_token": accessToken,
-		"expires_in":   900, // 15 minutes in seconds
+		"access_token":  tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken, // NEW refresh token
+		"token_type":    "Bearer",
+		"expires_in":    tokenPair.ExpiresIn,
 	})
 }

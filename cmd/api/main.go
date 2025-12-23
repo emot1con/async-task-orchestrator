@@ -5,15 +5,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"task_handler/internal/auth"
 	"task_handler/internal/cache"
 	"task_handler/internal/config"
 	"task_handler/internal/db"
+	"task_handler/internal/handler"
 	"task_handler/internal/queue"
-	"task_handler/internal/task"
-	"task_handler/internal/user"
 
-	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,6 +41,8 @@ func main() {
 			logrus.WithError(err).Fatal("Failed to close RabbitMQ connection")
 		}
 	}()
+
+	r := handler.SetupHandler(db, conn, rdb, config)
 
 	srv := &http.Server{
 		Addr:    ":8087",

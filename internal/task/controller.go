@@ -1,15 +1,11 @@
 package task
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"task_handler/internal/auth"
-	"task_handler/internal/config"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type TaskController struct {
@@ -19,27 +15,6 @@ type TaskController struct {
 func NewTaskController(service TaskServiceInterface) *TaskController {
 	return &TaskController{
 		service: service,
-	}
-}
-
-// SetupRoutes setup task routes with JWT protection
-func (a *TaskController) SetupRoutes(r *gin.Engine, db *sql.DB, conn *amqp.Connection, rdb *redis.Client, cfg *config.Config) {
-	repo := NewTaskRepository()
-	service := NewTaskService(repo, db, conn, rdb)
-	controller := NewTaskController(service)
-
-	// Protected routes - require JWT authentication
-	api := r.Group("/api/v1")
-	api.Use(auth.AuthMiddleware(cfg.JWT.Secret)) // Apply middleware to all routes in this group
-	{
-		// Create task
-		api.POST("/tasks", controller.CreateTask)
-
-		// Get task status
-		api.GET("/tasks/:id", controller.GetTask)
-
-		// Get tasks by user
-		api.GET("/users/:user_id/tasks", controller.GetTasksByUser)
 	}
 }
 

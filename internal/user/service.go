@@ -29,6 +29,12 @@ func NewUserService(repo UserRepositoryInterface, db *sql.DB) UserServiceInterfa
 
 // CreateUser creates a new user with hashed password
 func (s *UserService) CreateUser(username, password string) (int, error) {
+	// Get user by username
+	userData, err := s.repo.GetByUsername(s.db, username)
+	if err == nil && userData != nil {
+		return 0, errors.New("username already exists")
+	}
+
 	// Hash password
 	hashedPassword, err := auth.GeneratePasswordHash(password)
 	if err != nil {

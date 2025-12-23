@@ -102,20 +102,40 @@ func ValidateToken(tokenString string, secret string) (*Claims, error) {
 }
 
 // RefreshAccessToken generates new access token from refresh token
-func RefreshAccessToken(refreshTokenString string, secret string) (string, error) {
+// Note: Only returns access token, refresh token remains same (simple approach)
+// func RefreshAccessToken(refreshTokenString string, secret string) (string, error) {
+// 	// Validate refresh token
+// 	claims, err := ValidateToken(refreshTokenString, secret)
+// 	if err != nil {
+// 		return "", err
+// 	}
+
+// 	// Check if it's a refresh token
+// 	if claims.Type != RefreshToken {
+// 		return "", errors.New("not a refresh token")
+// 	}
+
+// 	// Generate new access token
+// 	return generateToken(claims.UserID, AccessToken, 15*time.Minute, secret)
+// }
+
+// RefreshTokenPair generates new access token AND new refresh token (with rotation)
+// This is more secure as it invalidates old refresh token
+func RefreshTokenPair(refreshTokenString string, secret string) (*TokenPair, error) {
 	// Validate refresh token
 	claims, err := ValidateToken(refreshTokenString, secret)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
 
 	// Check if it's a refresh token
 	if claims.Type != RefreshToken {
-		return "", errors.New("not a refresh token")
+		return nil, errors.New("not a refresh token")
 	}
 
-	// Generate new access token
-	return generateToken(claims.UserID, AccessToken, 15*time.Minute, secret)
+	// Generate NEW token pair (rotation for security)
+	// Old refresh token becomes invalid
+	return GenerateTokenPair(claims.UserID, secret)
 }
 
 // AuthMiddleware validates JWT and extracts userID
