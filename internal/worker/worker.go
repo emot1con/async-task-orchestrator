@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"task_handler/internal/observability"
 	"task_handler/internal/task"
 	"task_handler/internal/utils"
 	"time"
@@ -66,9 +65,6 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 	logrus.Infof("Worker %d started", id)
 
 	for msg := range msgs {
-		// Track message consumption
-		observability.GlobalMetrics.QueueMessagesConsumed.WithLabelValues("task_queue").Inc()
-
 		var payload task.TaskPayload
 		if err := json.Unmarshal(msg.Body, &payload); err != nil {
 			logrus.Error("invalid payload")
@@ -91,16 +87,12 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			retryCount,
 		)
 
-		// Start tracking task processing time
-		startTime := time.Now()
-
 		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, payload.ID)
 			return repo.MarkProcessing(tx, payload.ID)
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to mark task as processing")
-			observability.GlobalMetrics.TasksFailedTotal.WithLabelValues(payload.TaskType, "mark_processing_error").Inc()
 			msg.Nack(false, true)
 			continue
 		}
@@ -108,19 +100,12 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		// Execute task (outside transaction)
 		taskErr := handleTask(&payload, id)
 
-		// Record task processing duration
-		duration := time.Since(startTime).Seconds()
-		observability.GlobalMetrics.TaskProcessingDuration.WithLabelValues(payload.TaskType).Observe(duration)
-
 		// Transaction 2: Mark as SUCCESS or FAILED
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 			if taskErr != nil {
 				logrus.WithError(taskErr).Error("task failed")
-				observability.GlobalMetrics.TasksProcessedTotal.WithLabelValues(payload.TaskType, "failed").Inc()
-				observability.GlobalMetrics.TasksFailedTotal.WithLabelValues(payload.TaskType, "task_execution_error").Inc()
 				return repo.MarkFailed(tx, payload.ID, taskErr.Error())
 			}
-			observability.GlobalMetrics.TasksProcessedTotal.WithLabelValues(payload.TaskType, "success").Inc()
 			return repo.MarkSuccess(tx, payload.ID, "result.txt")
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to update task status")
@@ -132,7 +117,6 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 				}); err != nil {
 					logrus.WithError(err).Error("Failed to mark task as failed after max retries")
 				}
-				observability.GlobalMetrics.TasksFailedTotal.WithLabelValues(payload.TaskType, "max_retries").Inc()
 				msg.Nack(false, false)
 				continue
 			}
@@ -141,13 +125,10 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 			if err := republishWithRetry(ch, &msg, retryCount+1); err != nil {
 				logrus.WithError(err).Error("Failed to republish message")
-				observability.GlobalMetrics.TasksFailedTotal.WithLabelValues(payload.TaskType, "republish_error").Inc()
 				msg.Nack(false, false)
 				continue
 			}
 
-			// Track republishing
-			observability.GlobalMetrics.QueueMessagesPublished.WithLabelValues("task_queue").Inc()
 			msg.Ack(false)
 			continue
 		}

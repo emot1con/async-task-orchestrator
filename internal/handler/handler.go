@@ -2,8 +2,8 @@ package handler
 
 import (
 	"database/sql"
-	"task_handler/internal/auth"
 	"task_handler/internal/config"
+	"task_handler/internal/middleware"
 	"task_handler/internal/task"
 	"task_handler/internal/user"
 
@@ -30,13 +30,13 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 	taskController := task.NewTaskController(taskService)
 
 	// Setup routes
-	setupRoutes(r, userController, taskController, cfg.JWT.Secret)
+	setupRoutes(r, userController, taskController, redisClient, cfg.JWT.Secret)
 
 	return r
 }
 
 // setupRoutes configures all application routes
-func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, jwtSecret string) {
+func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, redisClient *redis.Client, jwtSecret string) {
 
 	// Public routes - Authentication
 	authGroup := r.Group("/auth")
@@ -48,7 +48,8 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 
 	// Protected routes - API v1
 	api := r.Group("/api/v1")
-	api.Use(auth.AuthMiddleware(jwtSecret)) // Apply JWT middleware to all routes in this group
+	api.Use(middleware.AuthMiddleware(jwtSecret))                                                 // Apply JWT middleware to all routes in this group
+	api.Use(middleware.RateLimiterMiddleware(redisClient, middleware.DefaultRateLimiterConfig())) // Apply rate limiter
 	{
 		// Task endpoints
 		api.POST("/tasks", taskCtrl.CreateTask)
