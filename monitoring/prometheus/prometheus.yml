@@ -1,0 +1,86 @@
+# Prometheus Configuration
+# Dokumentasi: https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+
+global:
+  # Seberapa sering Prometheus scrape (ambil) metrics
+  scrape_interval: 15s
+  
+  # Timeout untuk scraping
+  scrape_timeout: 10s
+  
+  # Seberapa sering evaluasi rules (alerting, recording)
+  evaluation_interval: 15s
+  
+  # Labels yang ditambahkan ke semua metrics
+  external_labels:
+    cluster: 'task-handler-cluster'
+    environment: 'development'
+
+# Alertmanager configuration (optional - untuk alerting)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# Rule files (optional - untuk alerting rules)
+# rule_files:
+#   - "alerts/*.yml"
+
+# Scrape configurations
+# Ini adalah daftar target yang akan di-scrape oleh Prometheus
+scrape_configs:
+  
+  # Job 1: Prometheus itself (untuk monitoring Prometheus)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+  
+  # Job 2: Task Handler API
+  - job_name: 'task-handler-api'
+    # Scrape setiap 10 detik (lebih sering karena ini aplikasi kita)
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['api:8087']
+        labels:
+          service: 'api'
+          component: 'rest-api'
+          
+  # Job 3: Task Handler Worker
+  - job_name: 'task-handler-worker'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['worker:8088']  # Worker akan expose metrics di port 8088
+        labels:
+          service: 'worker'
+          component: 'background-worker'
+  
+  # Job 4: PostgreSQL (optional - need postgres_exporter)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         service: 'postgres'
+  
+  # Job 5: Redis (optional - need redis_exporter)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         service: 'redis'
+  
+  # Job 6: RabbitMQ (optional - need rabbitmq_exporter)
+  # - job_name: 'rabbitmq'
+  #   static_configs:
+  #     - targets: ['rabbitmq-exporter:9419']
+  #       labels:
+  #         service: 'rabbitmq'
+
+# Storage configuration
+# storage:
+#   tsdb:
+#     path: /prometheus
+#     retention:
+#       time: 15d      # Simpan data 15 hari
+#       size: 10GB     # Maksimal 10GB

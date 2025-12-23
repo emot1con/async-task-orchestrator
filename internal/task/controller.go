@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"task_handler/internal/auth"
+	"task_handler/internal/observability"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +47,9 @@ func (tc *TaskController) CreateTask(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Track task creation metric
+	observability.GlobalMetrics.TasksCreatedTotal.WithLabelValues(task.TaskType).Inc()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"task_id": task.ID,

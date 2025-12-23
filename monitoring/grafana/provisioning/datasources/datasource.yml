@@ -1,0 +1,18 @@
+# Grafana Datasource Provisioning
+# Dokumentasi: https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources
+
+apiVersion: 1
+
+# List of datasources to insert/update
+datasources:
+  # Prometheus datasource
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
