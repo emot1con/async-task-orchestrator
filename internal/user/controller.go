@@ -85,23 +85,6 @@ func (a *UserController) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	// Option 1: Simple - Only refresh access token (refresh token stays same)
-	// accessToken, err := auth.RefreshAccessToken(req.RefreshToken, a.jwtSecret)
-	// if err != nil {
-	// 	if errors.Is(err, auth.ErrExpiredToken) {
-	// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token expired, please login again"})
-	// 	} else {
-	// 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid refresh token"})
-	// 	}
-	// 	return
-	// }
-	// c.JSON(http.StatusOK, gin.H{
-	// 	"access_token": accessToken,
-	// 	"expires_in":   900,
-	// })
-
-	// Option 2: Secure - Refresh both tokens (token rotation)
-	// This invalidates old refresh token for better security
 	tokenPair, err := auth.RefreshTokenPair(req.RefreshToken, a.jwtSecret)
 	if err != nil {
 		if err == auth.ErrExpiredToken {
