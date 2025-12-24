@@ -68,6 +68,18 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 		return
 	}
 
+	// Authorization: Check task ownership
+	authenticatedUserID, err := auth.GetUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+
+	if task.UserID != authenticatedUserID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You can only view your own tasks"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"id":            task.ID,
 		"user_id":       task.UserID,
@@ -82,12 +94,14 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 
 // GetTasksByUser handles getting all tasks for a user
 func (tc *TaskController) GetTasksByUser(c *gin.Context) {
-	userID, err := strconv.Atoi(c.Param("user_id"))
+	// Get authenticated user ID from JWT
+	userID, err := auth.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
 
+	// Proceed to get tasks
 	tasks, err := tc.service.GetTasks(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tasks"})

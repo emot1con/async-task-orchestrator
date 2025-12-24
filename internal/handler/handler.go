@@ -40,7 +40,6 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 
 	// Public routes - Authentication
 	authGroup := r.Group("/auth")
-	authGroup.Use(middleware.RateLimiterMiddleware(redisClient, middleware.StrictRateLimiter()))
 	{
 		authGroup.POST("/register", userCtrl.Register)
 		authGroup.POST("/login", userCtrl.Login)
@@ -55,6 +54,6 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 		// Task endpoints
 		api.POST("/tasks", taskCtrl.CreateTask)
 		api.GET("/tasks/:id", taskCtrl.GetTask)
-		api.GET("/users/:user_id/tasks", taskCtrl.GetTasksByUser)
+		api.GET("/users/tasks", taskCtrl.GetTasksByUser)
 	}
 }
