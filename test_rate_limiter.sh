@@ -3,8 +3,8 @@
 # Script untuk testing Rate Limiter
 # Usage: ./test_rate_limiter.sh [number_of_requests]
 
-REQUESTS=${1:-50}  # Default 50 requests jika tidak ada argument
-BASE_URL="http://localhost:8087"
+REQUESTS=${1:-1000}  # Default 50 requests jika tidak ada argument
+BASE_URL="http://localhost"
 
 echo "🚀 Testing Rate Limiter"
 echo "======================="

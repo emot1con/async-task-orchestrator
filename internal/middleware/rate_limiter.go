@@ -50,13 +50,8 @@ func RateLimiterMiddleware(redisClient *redis.Client, config *RateLimiterConfig)
 			return
 		}
 
-		// Build rate limiter key
 		key := UserRateLimiterKey(userID.(int))
-
-		// Current timestamp
 		now := time.Now().Unix()
-
-		// Execute Lua script
 		result, err := redisClient.EvalSha(ctx, scriptSHA, []string{key},
 			config.Capacity,
 			config.RefillRate,
