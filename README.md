@@ -2,40 +2,40 @@
 
 A production-ready asynchronous task processing system built with Go, featuring JWT authentication, Redis rate limiting, RabbitMQ message queue, and distributed worker architecture.
 
-## 🚀 Features
+## Features
 
 ### Core Functionality
-- ⚡ **Asynchronous Task Processing** - Non-blocking task execution with RabbitMQ
-- 🔄 **Distributed Workers** - Scalable worker pool for parallel task processing
-- 📊 **Task Status Tracking** - Real-time task status monitoring (PENDING, PROCESSING, COMPLETED, FAILED)
-- 🎯 **Multiple Task Types** - Support for IMAGE_RESIZE, VIDEO_PROCESS, DATA_EXPORT, and more
+- **Asynchronous Task Processing** - Non-blocking task execution with RabbitMQ
+- **Distributed Workers** - Scalable worker pool for parallel task processing
+- **Task Status Tracking** - Real-time task status monitoring (PENDING, PROCESSING, COMPLETED, FAILED)
+- **Multiple Task Types** - Support for IMAGE_RESIZE, VIDEO_PROCESS, DATA_EXPORT, and more
 
 ### Security & Performance
-- 🔐 **JWT Authentication** - Secure access/refresh token implementation (HS256)
-- 🛡️ **Ownership Authorization** - Users can only access their own resources
-- 🚦 **Rate Limiting** - Redis-based Token Bucket algorithm with Lua scripts
+- **JWT Authentication** - Secure access/refresh token implementation (HS256)
+- **Ownership Authorization** - Users can only access their own resources
+- **Rate Limiting** - Redis-based Token Bucket algorithm with Lua scripts
   - IP-based rate limiting for auth endpoints (via Nginx)
   - User-based rate limiting for API endpoints
-- ⚡ **Redis Caching** - Fast data access with connection pooling
+- **Redis Caching** - Fast data access with connection pooling
 
 ### Infrastructure
-- 🐳 **Docker Compose** - Complete containerized setup
-- 🗄️ **PostgreSQL** - Reliable persistent storage with migrations
-- 🔧 **Health Checks** - Container health monitoring
-- 📝 **Structured Logging** - Comprehensive application logging
+- **Docker Compose** - Complete containerized setup
+- **PostgreSQL** - Reliable persistent storage with migrations
+- **Health Checks** - Container health monitoring
+- **Structured Logging** - Comprehensive application logging
 
-## 📋 Table of Contents
-- [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
-- [API Documentation](#-api-documentation)
-- [Rate Limiting](#-rate-limiting)
-- [Development](#-development)
-- [Testing](#-testing)
-- [Project Structure](#-project-structure)
+## Table of Contents
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Documentation](#api-documentation)
+- [Rate Limiting](#rate-limiting)
+- [Development](#development)
+- [Testing](#testing)
+- [Project Structure](#project-structure)
 
-## 🏗 Architecture
+## Architecture
 
 ```
 ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
@@ -83,13 +83,13 @@ A production-ready asynchronous task processing system built with Go, featuring 
    - Task queue (task.created)
    - Async communication between API and workers
 
-## 📦 Prerequisites
+## Prerequisites
 
 - Docker & Docker Compose
 - Go 1.21+ (for local development)
 - Make (optional, for convenience commands)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Clone the Repository
 
@@ -138,7 +138,6 @@ curl -X POST http://localhost:8087/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "testuser",
-    "email": "test@example.com",
     "password": "password123"
   }'
 
@@ -146,7 +145,7 @@ curl -X POST http://localhost:8087/auth/register \
 curl -X POST http://localhost:8087/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "test@example.com",
+    "username": "testuser",
     "password": "password123"
   }'
 
@@ -163,7 +162,7 @@ curl -X GET http://localhost:8087/api/v1/tasks/1 \
   -H "Authorization: Bearer <TOKEN>"
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -182,9 +181,9 @@ curl -X GET http://localhost:8087/api/v1/tasks/1 \
 | `RABBITMQ_URL` | RabbitMQ connection URL | `amqp://guest:guest@rabbitmq:5672/` |
 | `JWT_SECRET` | JWT signing secret | `supersecret` |
 
-⚠️ **Security Note**: Change `JWT_SECRET` in production!
+**Security Note**: Change `JWT_SECRET` in production!
 
-## 📚 API Documentation
+## API Documentation
 
 ### Authentication Endpoints
 
@@ -195,7 +194,6 @@ Content-Type: application/json
 
 {
   "username": "johndoe",
-  "email": "john@example.com",
   "password": "securepass123"
 }
 
@@ -212,7 +210,7 @@ POST /auth/login
 Content-Type: application/json
 
 {
-  "email": "john@example.com",
+  "username": "johndoe",
   "password": "securepass123"
 }
 
@@ -324,17 +322,17 @@ PENDING → PROCESSING → COMPLETED
                     ↘ FAILED
 ```
 
-## 🚦 Rate Limiting
+## Rate Limiting
 
-This project implements **defense-in-depth** rate limiting strategy:
+This project implements defense-in-depth rate limiting strategy:
 
 ### 1. Nginx Layer (IP-based)
-- **Auth endpoints** (`/auth/*`): 1 request/second, burst=3
-- **API endpoints** (`/api/v1/*`): 300 requests/second, burst=10
+- Auth endpoints (`/auth/*`): 1 request/second, burst=3
+- API endpoints (`/api/v1/*`): 300 requests/second, burst=10
 - Protects against DDoS and brute-force attacks
 
 ### 2. Application Layer (User-based)
-- **Token Bucket Algorithm** implemented with Redis + Lua
+- Token Bucket Algorithm implemented with Redis + Lua
 - Per-user rate limiting with configurable presets
 - Atomic operations for distributed safety
 
@@ -359,16 +357,16 @@ HTTP 429 Too Many Requests
 
 See [RATE_LIMITER.md](RATE_LIMITER.md) for detailed documentation.
 
-## 🛠 Development
+## Development
 
 ### Local Development (without Docker)
 
-1. **Start infrastructure services:**
+1. Start infrastructure services:
 ```bash
 docker-compose up postgres redis rabbitmq -d
 ```
 
-2. **Run migrations:**
+2. Run migrations:
 ```bash
 # Install golang-migrate
 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
@@ -377,12 +375,12 @@ go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@lat
 migrate -path migrations -database "postgresql://postgres:postgres@localhost:5432/task_db?sslmode=disable" up
 ```
 
-3. **Run API server:**
+3. Run API server:
 ```bash
 go run cmd/api/main.go
 ```
 
-4. **Run worker (in another terminal):**
+4. Run worker (in another terminal):
 ```bash
 go run cmd/worker/main.go
 ```
@@ -413,7 +411,7 @@ This creates:
 - `XXX_add_new_feature.up.sql` - forward migration
 - `XXX_add_new_feature.down.sql` - rollback migration
 
-## 🧪 Testing
+## Testing
 
 ### Rate Limiter Tests
 
@@ -449,7 +447,7 @@ Monitor:
 - Message rates
 - Consumer status
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 .
@@ -484,80 +482,80 @@ Monitor:
 - **`cmd/worker/main.go`** - Worker service bootstrap
 - **`internal/middleware/rate_limiter.go`** - Token Bucket implementation
 - **`internal/middleware/rate_limiter.lua`** - Atomic Redis operations
-- **`internal/task/controller.go`** - Task HTTP handlers with ownership checks
-- **`internal/worker/proc.go`** - Task processing logic
-- **`migrations/`** - SQL schema definitions
+- `internal/task/controller.go` - Task HTTP handlers with ownership checks
+- `internal/worker/proc.go` - Task processing logic
+- `migrations/` - SQL schema definitions
 
-## 🔒 Security Features
+## Security Features
 
-✅ **Authentication**
+**Authentication**
 - JWT with HS256 signing
 - Access tokens (15 min) + Refresh tokens (7 days)
 - Token rotation on refresh
 
-✅ **Authorization**
+**Authorization**
 - Ownership-based access control
 - Users can only access their own resources
 - 403 Forbidden for unauthorized access
 
-✅ **Rate Limiting**
+**Rate Limiting**
 - Multi-layer protection (Nginx + App)
 - IP-based for auth endpoints
 - User-based for API endpoints
 - Token Bucket algorithm with Redis
 
-✅ **Input Validation**
+**Input Validation**
 - Request body validation
-- Email/username format checks
+- Username format checks
 - SQL injection prevention (prepared statements)
 
-✅ **Secure Defaults**
+**Secure Defaults**
 - HTTPS ready (configure reverse proxy)
 - Secure password hashing (bcrypt)
 - SQL injection protection
 - XSS prevention
 
-## 🚀 Production Deployment
+## Production Deployment
 
 ### Recommended Setup
 
-1. **Use environment-specific configs:**
+1. Use environment-specific configs:
 ```bash
 APP_ENV=production
 JWT_SECRET=<generate-strong-secret>
 ```
 
-2. **Enable HTTPS:**
+2. Enable HTTPS:
    - Use Nginx/Traefik as reverse proxy
    - Configure SSL/TLS certificates (Let's Encrypt)
 
-3. **Scale workers:**
+3. Scale workers:
 ```bash
 docker-compose up -d --scale worker=3
 ```
 
-4. **Monitor services:**
+4. Monitor services:
    - Add health check endpoints
-   - Configure Prometheus/Grafana (optional)
-   - Set up log aggregation (ELK stack)
+   - Configure monitoring system
+   - Set up log aggregation
 
-5. **Database backups:**
+5. Database backups:
 ```bash
 docker exec postgres pg_dump -U postgres task_db > backup.sql
 ```
 
 ### Performance Tuning
 
-- **Redis**: Enable persistence (RDB/AOF) for rate limit state
-- **PostgreSQL**: Add indexes on `user_id` and `status` columns
-- **RabbitMQ**: Adjust prefetch count for workers
-- **Nginx**: Tune worker_processes and connections
+- Redis: Enable persistence (RDB/AOF) for rate limit state
+- PostgreSQL: Add indexes on `user_id` and `status` columns
+- RabbitMQ: Adjust prefetch count for workers
+- Nginx: Tune worker_processes and connections
 
-## 📝 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
@@ -567,20 +565,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📧 Contact
-
-Your Name - [@yourtwitter](https://twitter.com/yourtwitter)
-
-Project Link: [https://github.com/yourusername/async-task-orchestrator](https://github.com/yourusername/async-task-orchestrator)
-
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Gin Web Framework](https://github.com/gin-gonic/gin)
 - [RabbitMQ](https://www.rabbitmq.com/)
 - [Redis](https://redis.io/)
 - [PostgreSQL](https://www.postgresql.org/)
 - [golang-jwt](https://github.com/golang-jwt/jwt)
-
----
-
-**Built with ❤️ using Go**
