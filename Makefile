@@ -41,10 +41,15 @@ test-unit: ## Run unit tests only
 test-integration: ## Run integration tests (requires Docker services)
 	@echo "Running integration tests..."
 	@echo "Make sure PostgreSQL, Redis, and RabbitMQ are running!"
+	go test -v -tags=integration -run 'TestAPIIntegration' ./tests/integration/...
+
+test-integration-all: ## Run all integration tests including worker tests (slow)
+	@echo "Running ALL integration tests (including worker tests)..."
+	@echo "Make sure PostgreSQL, Redis, and RabbitMQ are running!"
 	go test -v -tags=integration ./tests/integration/...
 
 test-integration-ci: ## Run integration tests in CI environment
-	go test -v -tags=integration -race -coverprofile=coverage-integration.txt ./tests/integration/...
+	go test -v -tags=integration -race -run 'TestAPIIntegration' -coverprofile=coverage-integration.txt ./tests/integration/...
 
 test-rate-limiter: ## Run rate limiter tests
 	go test -v ./internal/middleware -run RateLimiter

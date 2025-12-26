@@ -88,8 +88,10 @@ func loadTestConfig() *config.Config {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		Redis: config.RedisConfig{
-			Host: getEnv("REDIS_HOST", "localhost"),
-			Port: getEnv("REDIS_PORT", "6379"),
+			Host:          getEnv("REDIS_HOST", "localhost"),
+			Port:          getEnv("REDIS_PORT", "6379"),
+			RedisPassword: getEnv("REDIS_PASSWORD", ""),
+			RedisDB:       getEnv("REDIS_DB", "0"),
 		},
 		RabbitMQ: config.RabbitMQConfig{
 			URL: getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
@@ -152,7 +154,7 @@ func runMigrations(database *sql.DB) error {
 		user_id INTEGER NOT NULL REFERENCES users(id),
 		task_type VARCHAR(50) NOT NULL,
 		status VARCHAR(20) DEFAULT 'PENDING',
-		result TEXT,
+		result_file TEXT,
 		error_message TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
