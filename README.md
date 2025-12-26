@@ -1,33 +1,44 @@
 # Async Task Orchestrator
 
-![CI](https://github.com/emot1con/async-task-orchestrator/workflows/CI/badge.svg)
+![CI](https://github.com/emot1con/task_handler/workflows/CI/badge.svg)
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
-![Coverage](https://img.shields.io/badge/coverage-60%25-yellowgreen)
+![Coverage](https://img.shields.io/codecov/c/github/emot1con/task_handler)](https://codecov.io/gh/emot1con/task_handler)
 
-A production-ready asynchronous task processing system built with Go, featuring JWT authentication, Redis rate limiting, RabbitMQ message queue, and distributed worker architecture.
+**Production-ready asynchronous task processing system with Go, RabbitMQ, Redis rate limiting, and JWT auth**
+
+A scalable, distributed task orchestration platform built with Go, featuring comprehensive security (JWT authentication, rate limiting), robust infrastructure (Docker, PostgreSQL, Redis, RabbitMQ), and complete CI/CD pipeline with unit and integration tests.
 
 ## Features
 
 ### Core Functionality
 - **Asynchronous Task Processing** - Non-blocking task execution with RabbitMQ
 - **Distributed Workers** - Scalable worker pool for parallel task processing
-- **Task Status Tracking** - Real-time task status monitoring (PENDING, PROCESSING, COMPLETED, FAILED)
-- **Multiple Task Types** - Support for IMAGE_RESIZE, VIDEO_PROCESS, DATA_EXPORT, and more
+- **Task Status Tracking** - Real-time task status monitoring (PENDING, PROCESSING, SUCCESS, FAILED)
+- **Multiple Task Types** - Support for `send_email`, `generate_report`, `resize_image`, `cleanup_temp`
 
 ### Security & Performance
 - **JWT Authentication** - Secure access/refresh token implementation (HS256)
-- **Ownership Authorization** - Users can only access their own resources
-- **Rate Limiting** - Redis-based Token Bucket algorithm with Lua scripts
-  - IP-based rate limiting for auth endpoints (via Nginx)
+  - Access tokens: 15 minutes
+  - Refresh tokens: 7 days
+- **Ownership Authorization** - Users can only access their own resources (403 Forbidden on violation)
+- **Rate Limiting** - Redis-based Token Bucket algorithm with atomic Lua scripts
+  - IP-based rate limiting for auth endpoints
   - User-based rate limiting for API endpoints
-- **Redis Caching** - Fast data access with connection pooling
+  - Configurable burst capacity and refill rate
+- **Redis Caching** - Fast task/user data access with connection pooling
+
+### Testing & Quality
+- **Comprehensive Test Coverage** - Unit tests + Integration tests
+- **CI/CD Pipeline** - Automated testing, building, and security scanning
+- **Separate Test Jobs** - Unit tests (fast) vs Integration tests (with services)
+- **Code Coverage** - Codecov integration with coverage reports
 
 ### Infrastructure
-- **Docker Compose** - Complete containerized setup
+- **Docker Compose** - Complete containerized setup (API, Worker, PostgreSQL, Redis, RabbitMQ)
 - **PostgreSQL** - Reliable persistent storage with migrations
 - **Health Checks** - Container health monitoring
-- **Structured Logging** - Comprehensive application logging
+- **Structured Logging** - Comprehensive application logging with logrus
 
 ## Table of Contents
 - [Architecture](#architecture)
@@ -418,55 +429,82 @@ This creates:
 
 ## Testing
 
-The project includes comprehensive unit tests covering critical components:
-- Rate limiter (Token Bucket algorithm)
-- JWT authentication & authorization
-- Ownership-based access control
-- Task creation & retrieval
+The project includes comprehensive test coverage with both **unit tests** and **integration tests**:
 
-### Running Tests
+### Test Structure
+
+#### Unit Tests
+- **Rate Limiter** - Token Bucket algorithm with Redis
+- **JWT Authentication** - Token generation, validation, refresh
+- **Authorization** - Ownership-based access control
+- **Task Business Logic** - Task creation and validation
+
+#### Integration Tests
+- **Auth Flow** - Full registration, login, token refresh cycle
+- **Task CRUD** - Complete task lifecycle with real dependencies
+- **Cache Testing** - Redis caching behavior verification
+- **Ownership & Security** - Cross-user access prevention
+- **All Task Types** - `send_email`, `generate_report`, `resize_image`, `cleanup_temp`
+
+### Running Tests Locally
 
 ```bash
-# Run all tests
+# Run unit tests only
 make test
+# or
+go test ./... -v
 
-# Run tests with verbose output
-make test-verbose
-
-# Run tests with coverage report
-make test-coverage
-
-# Run specific test suites
-make test-rate-limiter    # Rate limiter tests
-make test-auth            # Authentication tests
-make test-controller      # Controller tests
-
-# View coverage report
-open coverage.html
-```
-
-### Test Requirements
-
-For tests to run successfully, you need:
-- Redis running on `localhost:6379` (for rate limiter tests)
-- PostgreSQL running on `localhost:5432` (for integration tests)
-
-**Quick setup for tests:**
-```bash
-# Start only required services
+# Run integration tests (requires running services)
 docker-compose up -d postgres redis rabbitmq
 
-# Run tests
+# Create test database
+docker exec postgres psql -U postgres -c "CREATE DATABASE task_db_test;"
+
+# Run integration tests
+go test -v -tags=integration ./tests/integration/...
+
+# Run all tests with coverage
 make test-coverage
 ```
 
-### CI/CD
+### CI/CD Pipeline
 
-The project uses GitHub Actions for automated testing. On every push and pull request:
-- Unit tests run with PostgreSQL, Redis, and RabbitMQ services
-- Code coverage is calculated and reported
-- Docker images are built to verify build process
-- Security scanning with gosec
+The project uses **GitHub Actions** with separate jobs for different test types:
+
+```
+┌────────────────┐     ┌──────────────────────┐     ┌──────────┐
+│  Unit Test     │     │  Integration Test    │     │   Lint   │
+│                │     │  • PostgreSQL        │     │          │
+│  (Fast, no     │     │  • Redis             │     │ golangci │
+│   services)    │     │  • RabbitMQ          │     │          │
+└────────┬───────┘     └──────────┬───────────┘     └────┬─────┘
+         │                        │                       │
+         └────────────────────────┴───────────────────────┘
+                                  │
+                           ┌──────▼──────┐
+                           │    Build    │
+                           │   Docker    │
+                           └──────┬──────┘
+                                  │
+                           ┌──────▼──────┐
+                           │  Security   │
+                           │   gosec     │
+                           └─────────────┘
+```
+
+**On every push/PR:**
+- ✅ Unit tests (no external dependencies)
+- ✅ Integration tests (with PostgreSQL, Redis, RabbitMQ)
+- ✅ Linting with golangci-lint
+- ✅ Docker image builds (API + Worker)
+- ✅ Security scanning with gosec
+- ✅ Code coverage uploaded to Codecov
+
+### Test Coverage
+
+- **Unit Tests**: Core business logic and utilities
+- **Integration Tests**: Full API + Database + Cache + Queue interactions
+- Coverage reports available in GitHub Actions artifacts
 
 ### Manual E2E Testing
 
@@ -505,24 +543,48 @@ Monitor:
 ## Project Structure
 
 ```
-.
+task_handler/
 ├── cmd/
 │   ├── api/           # API server entry point
+│   │   └── main.go
 │   └── worker/        # Worker service entry point
+│       └── main.go
 ├── internal/
-│   ├── auth/          # JWT authentication
+│   ├── auth/          # JWT authentication utilities
 │   ├── cache/         # Redis cache client
 │   ├── config/        # Configuration management
 │   ├── db/            # PostgreSQL client
 │   ├── handler/       # HTTP route handlers
+│   ├── logger/        # Structured logging (logrus)
 │   ├── middleware/    # JWT & Rate limiter middleware
+│   ├── observability/ # Metrics & tracing
 │   ├── queue/         # RabbitMQ client
 │   ├── task/          # Task domain (model, repo, controller)
+│   │   ├── model.go
+│   │   ├── repository.go
+│   │   └── controller.go
+│   ├── user/          # User domain (auth, registration)
+│   │   ├── model.go
+│   │   ├── repository.go
+│   │   ├── service.go
+│   │   └── controller.go
 │   └── worker/        # Task processing logic
+│       └── proc.go
+├── tests/
+│   └── integration/   # Integration test suite
+│       ├── setup_test.go      # Test environment setup
+│       ├── auth_test.go       # Auth flow tests
+│       ├── task_test.go       # Task CRUD tests
+│       └── cache_test.go      # Cache behavior tests
 ├── migrations/        # Database migrations
+│   ├── 001_create_tasks.up.sql
+│   └── 002_add_task_column.up.sql
 ├── docker/            # Dockerfiles
 │   ├── api.Dockerfile
 │   └── worker.Dockerfile
+├── .github/
+│   └── workflows/
+│       └── ci.yml     # CI/CD pipeline (unit + integration tests)
 ├── reports/           # Task processing results
 ├── docker-compose.yaml
 ├── go.mod
@@ -537,9 +599,12 @@ Monitor:
 - **`cmd/worker/main.go`** - Worker service bootstrap
 - **`internal/middleware/rate_limiter.go`** - Token Bucket implementation
 - **`internal/middleware/rate_limiter.lua`** - Atomic Redis operations
-- `internal/task/controller.go` - Task HTTP handlers with ownership checks
-- `internal/worker/proc.go` - Task processing logic
-- `migrations/` - SQL schema definitions
+- **`internal/task/controller.go`** - Task HTTP handlers with ownership checks
+- **`internal/user/controller.go`** - Auth endpoints (register, login, refresh)
+- **`internal/worker/proc.go`** - Task processing logic (send_email, generate_report, etc.)
+- **`tests/integration/`** - Complete integration test suite
+- **`migrations/`** - SQL schema definitions
+- **`.github/workflows/ci.yml`** - Automated CI/CD with unit + integration tests
 
 ## Security Features
 
