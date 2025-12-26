@@ -101,7 +101,7 @@ func (tc *TaskController) GetTasksByUser(c *gin.Context) {
 		return
 	}
 
-	// Proceed to get tasks
+	// Get tasks for authenticated user only
 	tasks, err := tc.service.GetTasks(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tasks"})

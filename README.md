@@ -1,5 +1,10 @@
 # Async Task Orchestrator
 
+![CI](https://github.com/emot1con/async-task-orchestrator/workflows/CI/badge.svg)
+![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Coverage](https://img.shields.io/badge/coverage-60%25-yellowgreen)
+
 A production-ready asynchronous task processing system built with Go, featuring JWT authentication, Redis rate limiting, RabbitMQ message queue, and distributed worker architecture.
 
 ## Features
@@ -413,7 +418,57 @@ This creates:
 
 ## Testing
 
-### Rate Limiter Tests
+The project includes comprehensive unit tests covering critical components:
+- Rate limiter (Token Bucket algorithm)
+- JWT authentication & authorization
+- Ownership-based access control
+- Task creation & retrieval
+
+### Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with coverage report
+make test-coverage
+
+# Run specific test suites
+make test-rate-limiter    # Rate limiter tests
+make test-auth            # Authentication tests
+make test-controller      # Controller tests
+
+# View coverage report
+open coverage.html
+```
+
+### Test Requirements
+
+For tests to run successfully, you need:
+- Redis running on `localhost:6379` (for rate limiter tests)
+- PostgreSQL running on `localhost:5432` (for integration tests)
+
+**Quick setup for tests:**
+```bash
+# Start only required services
+docker-compose up -d postgres redis rabbitmq
+
+# Run tests
+make test-coverage
+```
+
+### CI/CD
+
+The project uses GitHub Actions for automated testing. On every push and pull request:
+- Unit tests run with PostgreSQL, Redis, and RabbitMQ services
+- Code coverage is calculated and reported
+- Docker images are built to verify build process
+- Security scanning with gosec
+
+### Manual E2E Testing
 
 ```bash
 # Test auth endpoint rate limiting
