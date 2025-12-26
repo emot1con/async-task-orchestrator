@@ -197,13 +197,27 @@ func setupTestRabbitMQ(t *testing.T, cfg *config.Config) *amqp.Connection {
 		t.Fatal("Failed to connect to test RabbitMQ")
 	}
 
-	// Purge test queue
+	// Declare and purge test queue
 	ch, err := conn.Channel()
 	if err != nil {
 		t.Fatalf("Failed to open channel: %v", err)
 	}
 	defer ch.Close()
 
+	// Declare queue (idempotent)
+	_, err = ch.QueueDeclare(
+		"task_queue", // name
+		true,         // durable
+		false,        // delete when unused
+		false,        // exclusive
+		false,        // no-wait
+		nil,          // arguments
+	)
+	if err != nil {
+		t.Fatalf("Failed to declare queue: %v", err)
+	}
+
+	// Purge existing messages
 	_, err = ch.QueuePurge("task_queue", false)
 	if err != nil {
 		log.Printf("Warning: Failed to purge queue: %v", err)

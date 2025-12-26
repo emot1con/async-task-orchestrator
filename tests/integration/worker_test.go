@@ -38,7 +38,7 @@ func TestWorkerIntegration_TaskProcessing(t *testing.T) {
 	// Create a task
 	testTask := &task.Task{
 		UserID:   userID,
-		TaskType: "EMAIL_SEND",
+		TaskType: "send_email",
 		Status:   "PENDING",
 	}
 
@@ -211,7 +211,7 @@ func TestWorkerIntegration_ConcurrentProcessing(t *testing.T) {
 	for i := 0; i < numTasks; i++ {
 		testTask := &task.Task{
 			UserID:   userID,
-			TaskType: "DATA_PROCESS",
+			TaskType: "send_email",
 			Status:   "PENDING",
 		}
 
@@ -308,7 +308,7 @@ func TestWorkerIntegration_TaskStateTransitions(t *testing.T) {
 	// Create task
 	testTask := &task.Task{
 		UserID:   userID,
-		TaskType: "STATE_TEST",
+		TaskType: "send_email",
 		Status:   "PENDING",
 	}
 
