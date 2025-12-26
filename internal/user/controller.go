@@ -3,9 +3,11 @@ package user
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"task_handler/internal/auth"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 type UserController struct {
@@ -35,10 +37,20 @@ func (a *UserController) Register(c *gin.Context) {
 	// Create user
 	userID, err := a.userService.CreateUser(req.Username, req.Password)
 	if err != nil {
-		// Check if username already exists
-		if err.Error() == "UNIQUE constraint failed" ||
-			err.Error() == "duplicate key value violates unique constraint" ||
-			err.Error() == "pq: duplicate key value violates unique constraint \"users_username_key\"" {
+		// Check for service layer duplicate user error
+		if err.Error() == "username already exists" {
+			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
+			return
+		}
+		// Check if username already exists using PostgreSQL error code
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
+			return
+		}
+		// Fallback: check for common duplicate key error messages
+		if strings.Contains(err.Error(), "duplicate key") ||
+			strings.Contains(err.Error(), "UNIQUE constraint") ||
+			strings.Contains(err.Error(), "already exists") {
 			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
 			return
 		}
