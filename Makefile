@@ -38,8 +38,13 @@ test-coverage: ## Run tests with coverage report
 test-unit: ## Run unit tests only
 	go test -v -short ./...
 
-test-integration: ## Run integration tests
-	go test -v -run Integration ./...
+test-integration: ## Run integration tests (requires Docker services)
+	@echo "Running integration tests..."
+	@echo "Make sure PostgreSQL, Redis, and RabbitMQ are running!"
+	go test -v -tags=integration ./tests/integration/...
+
+test-integration-ci: ## Run integration tests in CI environment
+	go test -v -tags=integration -race -coverprofile=coverage-integration.txt ./tests/integration/...
 
 test-rate-limiter: ## Run rate limiter tests
 	go test -v ./internal/middleware -run RateLimiter
