@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Add permissions for all jobs
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
 jobs:
   test:
     name: Test
@@ -121,7 +127,7 @@ jobs:
       uses: golangci/golangci-lint-action@v4
       with:
         version: latest
-        args: --timeout=5m
+        args: --timeout=5m --out-format=colored-line-number
 
   build:
     name: Build

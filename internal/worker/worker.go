@@ -68,7 +68,9 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		var payload task.TaskPayload
 		if err := json.Unmarshal(msg.Body, &payload); err != nil {
 			logrus.Error("invalid payload")
-			msg.Nack(false, false)
+			if err := msg.Nack(false, false); err != nil {
+				logrus.WithError(err).Warn("Failed to nack message")
+			}
 			continue
 		}
 
@@ -93,7 +95,9 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			return repo.MarkProcessing(tx, payload.ID)
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to mark task as processing")
-			msg.Nack(false, true)
+			if err := msg.Nack(false, true); err != nil {
+				logrus.WithError(err).Warn("Failed to nack message for requeue")
+			}
 			continue
 		}
 
@@ -117,7 +121,9 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 				}); err != nil {
 					logrus.WithError(err).Error("Failed to mark task as failed after max retries")
 				}
-				msg.Nack(false, false)
+				if err := msg.Nack(false, false); err != nil {
+					logrus.WithError(err).Warn("Failed to nack message after max retries")
+				}
 				continue
 			}
 
@@ -125,14 +131,20 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 			if err := republishWithRetry(ch, &msg, retryCount+1); err != nil {
 				logrus.WithError(err).Error("Failed to republish message")
-				msg.Nack(false, false)
+				if err := msg.Nack(false, false); err != nil {
+					logrus.WithError(err).Warn("Failed to nack message after republish error")
+				}
 				continue
 			}
 
-			msg.Ack(false)
+			if err := msg.Ack(false); err != nil {
+				logrus.WithError(err).Warn("Failed to ack message after republish")
+			}
 			continue
 		}
 
-		msg.Ack(false)
+		if err := msg.Ack(false); err != nil {
+			logrus.WithError(err).Warn("Failed to ack message")
+		}
 	}
 }

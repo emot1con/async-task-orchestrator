@@ -277,7 +277,8 @@ func TestTokenExpiration(t *testing.T) {
 	userID := 888
 
 	// Generate token with very short expiration
-	shortLivedToken, err := generateToken(userID, AccessToken, 300*time.Millisecond, testSecret)
+	// Use 1 second for CI environment stability (JWT library adds clock skew tolerance)
+	shortLivedToken, err := generateToken(userID, AccessToken, 1*time.Second, testSecret)
 	require.NoError(t, err)
 
 	// Should be valid immediately
@@ -285,8 +286,8 @@ func TestTokenExpiration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, userID, claims.UserID)
 
-	// Wait for token to expire (give extra margin)
-	time.Sleep(500 * time.Millisecond)
+	// Wait for token to expire (2 seconds to ensure expiration beyond clock skew)
+	time.Sleep(2 * time.Second)
 
 	// Should now be expired
 	claims, err = ValidateToken(shortLivedToken, testSecret)

@@ -97,8 +97,10 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 	}
 
 	logrus.Info("cache miss for task ", taskID)
-	// Set cache (ignore error)
-	s.cache.Set(ctx, cacheKey, task)
+	// Set cache (ignore error, cache miss is not critical)
+	if err := s.cache.Set(ctx, cacheKey, task); err != nil {
+		logrus.WithError(err).Warn("Failed to set cache for task")
+	}
 
 	return task, nil
 }
@@ -125,8 +127,10 @@ func (s *TaskService) GetTasks(userID int) ([]*Task, error) {
 		return nil, err
 	}
 
-	// Set cache (ignore error)
-	s.cache.Set(ctx, cacheKey, tasks)
+	// Set cache (ignore error, cache miss is not critical)
+	if err := s.cache.Set(ctx, cacheKey, tasks); err != nil {
+		logrus.WithError(err).Warn("Failed to set cache for user tasks")
+	}
 
 	return tasks, nil
 }

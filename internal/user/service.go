@@ -52,7 +52,11 @@ func (s *UserService) CreateUser(username, password string) (int, error) {
 		logrus.WithError(err).Error("Failed to begin transaction")
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			logrus.WithError(err).Warn("Failed to rollback transaction")
+		}
+	}()
 
 	// Create user
 	id, err := s.repo.Create(tx, user)
