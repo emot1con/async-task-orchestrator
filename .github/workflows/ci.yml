@@ -87,7 +87,7 @@ jobs:
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         RABBITMQ_URL: amqp://guest:guest@localhost:5672/
-        JWT_SECRET: ${{ secrets.JWT_SECRE }}
+        JWT_SECRET: ${{ secrets.dawdawd }}
         APP_ENV: test
 
     - name: Upload coverage to Codecov
