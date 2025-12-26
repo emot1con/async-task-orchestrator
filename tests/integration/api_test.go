@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"task_handler/internal/handler"
-	"task_handler/internal/task"
-	"task_handler/internal/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

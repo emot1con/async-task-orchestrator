@@ -100,14 +100,18 @@ func TestWorkerIntegration_TaskRetry(t *testing.T) {
 
 	taskRepo := task.NewTaskRepository()
 
-	// Manually insert a task that will fail
+	// Manually insert a task that will fail using transaction
 	testTask := &task.Task{
 		UserID:   userID,
 		TaskType: "INVALID_TASK_TYPE", // This will cause handleTask to fail
 		Status:   "PENDING",
 	}
 
-	taskID, err := taskRepo.Create(deps.DB, testTask)
+	tx, err := deps.DB.Begin()
+	require.NoError(t, err)
+	taskID, err := taskRepo.Create(tx, testTask)
+	require.NoError(t, err)
+	err = tx.Commit()
 	require.NoError(t, err)
 	testTask.ID = taskID
 
@@ -166,10 +170,11 @@ func TestWorkerIntegration_TaskRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "FAILED", failedTask.Status)
-	assert.NotEmpty(t, failedTask.ErrorMessage)
-	assert.Contains(t, failedTask.ErrorMessage, "max retries")
-
-	t.Logf("✅ Task properly failed after max retries: Error=%s", failedTask.ErrorMessage)
+	assert.NotNil(t, failedTask.ErrorMessage)
+	if failedTask.ErrorMessage != nil {
+		assert.Contains(t, *failedTask.ErrorMessage, "max retries")
+		t.Logf("✅ Task properly failed after max retries: Error=%s", *failedTask.ErrorMessage)
+	}
 
 	// Cleanup
 	deps.RabbitConn.Close()
