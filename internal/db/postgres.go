@@ -27,7 +27,9 @@ func Init(DBCfg *config.DBConfig) *sql.DB {
 
 		if err = db.Ping(); err != nil {
 			log.Printf("Failed to ping database (attempt %d/%d): %v", i+1, maxRetries, err)
-			db.Close()
+			if err := db.Close(); err != nil {
+				log.Printf("Failed to close database connection: %v", err)
+			}
 			time.Sleep(time.Duration(i+1) * time.Second)
 			continue
 		}

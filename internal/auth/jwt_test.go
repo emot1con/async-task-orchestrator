@@ -299,16 +299,25 @@ func TestTokenExpiration(t *testing.T) {
 // Benchmark token generation
 func BenchmarkGenerateTokenPair(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		GenerateTokenPair(123, testSecret)
+		_, err := GenerateTokenPair(123, testSecret)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
 // Benchmark token validation
 func BenchmarkValidateToken(b *testing.B) {
-	token, _ := generateToken(123, AccessToken, 15*time.Minute, testSecret)
+	token, err := generateToken(123, AccessToken, 15*time.Minute, testSecret)
+	if err != nil {
+		b.Fatal(err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ValidateToken(token, testSecret)
+		_, err := ValidateToken(token, testSecret)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

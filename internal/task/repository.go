@@ -102,7 +102,11 @@ func (r *TaskRepository) GetByUserID(
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logrus.WithError(err).Warn("Failed to close rows")
+		}
+	}()
 	var tasks []*Task
 
 	for rows.Next() {
