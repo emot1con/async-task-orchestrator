@@ -101,7 +101,6 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		// Execute task (outside transaction)
 		taskErr := handleTask(&payload, id)
 
 		// Transaction 2: Mark as SUCCESS or FAILED
