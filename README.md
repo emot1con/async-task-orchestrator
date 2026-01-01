@@ -162,7 +162,7 @@ curl -X POST http://localhost:8087/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "username": "testuser",
-    "password": "password123"
+    "password": "password12"
   }'
 
 # Create a task (replace <TOKEN> with access_token from login)
