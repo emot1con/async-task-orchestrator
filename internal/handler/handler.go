@@ -40,6 +40,8 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 
 	// Public routes - Authentication
 	authGroup := r.Group("/auth")
+	authGroup.Use(middleware.RateLimiterMiddleware(redisClient, middleware.StrictRateLimiter()))
+
 	{
 		authGroup.POST("/register", userCtrl.Register)
 		authGroup.POST("/login", userCtrl.Login)
@@ -48,8 +50,8 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 
 	// Protected routes - API v1
 	api := r.Group("/api/v1")
-	api.Use(middleware.AuthMiddleware(jwtSecret))
 	api.Use(middleware.RateLimiterMiddleware(redisClient, middleware.DefaultRateLimiterConfig()))
+	api.Use(middleware.AuthMiddleware(jwtSecret))
 	{
 		// Task endpoints
 		api.POST("/tasks", taskCtrl.CreateTask)
