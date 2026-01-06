@@ -12,6 +12,9 @@ up_build: ## Build and start all services
 	docker-compose down
 	docker-compose up -d --build
 
+down:
+	docker-compose down
+
 api: ## Rebuild and restart API only
 	docker-compose down api
 	docker-compose up -d api --build
