@@ -18,7 +18,7 @@ import (
 type TaskServiceInterface interface {
 	CreateTask(task *Task) error
 	GetTask(taskID int) (*Task, error)
-	GetTasks(userID int) ([]*Task, error)
+	GetTasks(userID int, page int, limit int) ([]*Task, error)
 }
 
 type TaskService struct {
@@ -38,6 +38,9 @@ func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, conn *amqp.Connect
 }
 
 func (s *TaskService) CreateTask(task *Task) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
 	if task.UserID == 0 || task.TaskType == "" {
 		return fmt.Errorf("invalid task payload")
 	}
@@ -58,6 +61,10 @@ func (s *TaskService) CreateTask(task *Task) error {
 		return err
 	}
 	defer ch.Close()
+
+	if err := s.cache.DeleteCacheByPattern(ctx, fmt.Sprintf("tasks:user:%d*", task.UserID)); err != nil {
+		logrus.WithError(err).Warn("Failed to delete user tasks cache after creating new task")
+	}
 
 	return ch.Publish(
 		"",
@@ -81,7 +88,7 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 
 	// Try cache first
 	cacheKey := cache.TaskKey(taskID)
-	cachedData, err := s.cache.Get(ctx, cacheKey)
+	cachedData, err := s.cache.GetTask(ctx, cacheKey)
 	if err == nil && cachedData != nil {
 		var task Task
 		if json.Unmarshal(cachedData, &task) == nil {
@@ -98,20 +105,22 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 
 	logrus.Info("cache miss for task ", taskID)
 	// Set cache (ignore error, cache miss is not critical)
-	if err := s.cache.Set(ctx, cacheKey, task); err != nil {
+	if err := s.cache.SetTask(ctx, cacheKey, task); err != nil {
 		logrus.WithError(err).Warn("Failed to set cache for task")
 	}
 
 	return task, nil
 }
 
-func (s *TaskService) GetTasks(userID int) ([]*Task, error) {
+func (s *TaskService) GetTasks(userID int, page int, limit int) ([]*Task, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Try cache first
-	cacheKey := cache.UserTasksKey(userID)
-	cachedData, err := s.cache.Get(ctx, cacheKey)
+	offset := (page - 1) * limit
+
+	// cache first
+	cacheKey := cache.UserTasksKey(userID, limit, offset)
+	cachedData, err := s.cache.GetTasks(ctx, cacheKey)
 	if err == nil && cachedData != nil {
 		var tasks []*Task
 		if json.Unmarshal(cachedData, &tasks) == nil {
@@ -122,13 +131,13 @@ func (s *TaskService) GetTasks(userID int) ([]*Task, error) {
 	logrus.Infof("cache miss for user %d tasks", userID)
 
 	// Cache miss, get from DB
-	tasks, err := s.repo.GetByUserID(s.DB, userID)
+	tasks, err := s.repo.GetByUserID(s.DB, userID, offset, limit)
 	if err != nil {
 		return nil, err
 	}
 
 	// Set cache (ignore error, cache miss is not critical)
-	if err := s.cache.Set(ctx, cacheKey, tasks); err != nil {
+	if err := s.cache.SetTasks(ctx, cacheKey, tasks); err != nil {
 		logrus.WithError(err).Warn("Failed to set cache for user tasks")
 	}
 

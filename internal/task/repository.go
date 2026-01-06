@@ -12,7 +12,7 @@ type TaskRepository struct{}
 type TaskRepositoryInterface interface {
 	Create(tx *sql.Tx, task *Task) (int, error)
 	GetByID(db *sql.DB, id int) (*Task, error)
-	GetByUserID(db *sql.DB, userID int) ([]*Task, error)
+	GetByUserID(db *sql.DB, userID int, offset int, limit int) ([]*Task, error)
 	MarkProcessing(tx *sql.Tx, id int) error
 	MarkSuccess(tx *sql.Tx, id int, resultFile string) error
 	MarkFailed(tx *sql.Tx, id int, errorMessage string) error
@@ -88,6 +88,8 @@ func (r *TaskRepository) GetByID(
 func (r *TaskRepository) GetByUserID(
 	db *sql.DB,
 	userID int,
+	offset int,
+	limit int,
 ) ([]*Task, error) {
 	query := `
 		SELECT
@@ -96,9 +98,11 @@ func (r *TaskRepository) GetByUserID(
 			created_at, updated_at
 		FROM tasks
 		WHERE user_id = $1
+		ORDER BY created_at ASC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := db.Query(query, userID)
+	rows, err := db.Query(query, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

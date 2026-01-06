@@ -19,8 +19,29 @@ func NewTaskCache(client *redis.Client) *TaskCache {
 	return &TaskCache{client: client}
 }
 
+// GetTask task from cache
+func (c *TaskCache) GetTask(ctx context.Context, key string) ([]byte, error) {
+	val, err := c.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return nil, nil // Cache miss
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []byte(val), nil
+}
+
+// SetTask task to cache with TTL
+func (c *TaskCache) SetTask(ctx context.Context, key string, data interface{}) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return c.client.Set(ctx, key, jsonData, TaskCacheTTL).Err()
+}
+
 // Get task from cache
-func (c *TaskCache) Get(ctx context.Context, key string) ([]byte, error) {
+func (c *TaskCache) GetTasks(ctx context.Context, key string) ([]byte, error) {
 	val, err := c.client.Get(ctx, key).Result()
 	if err == redis.Nil {
 		return nil, nil // Cache miss
@@ -32,12 +53,42 @@ func (c *TaskCache) Get(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Set task to cache with TTL
-func (c *TaskCache) Set(ctx context.Context, key string, data interface{}) error {
+func (c *TaskCache) SetTasks(ctx context.Context, key string, data interface{}) error {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 	return c.client.Set(ctx, key, jsonData, TaskCacheTTL).Err()
+}
+
+func (c *TaskCache) DeleteCacheByPattern(ctx context.Context, key string) error {
+	var cursor uint64
+	var keys []string
+
+	for {
+		var err error
+		var scanKeys []string
+
+		scanKeys, cursor, err = c.client.Scan(ctx, cursor, key, 100).Result()
+		if err != nil {
+			return err
+		}
+		keys = append(keys, scanKeys...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Skip deletion if no keys found
+	if len(keys) == 0 {
+		return nil
+	}
+
+	if err := c.client.Del(ctx, keys...).Err(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Build cache key for single task
@@ -46,6 +97,6 @@ func TaskKey(taskID int) string {
 }
 
 // Build cache key for user tasks
-func UserTasksKey(userID int) string {
-	return fmt.Sprintf("tasks:user:%d", userID)
+func UserTasksKey(userID, limit, offset int) string {
+	return fmt.Sprintf("tasks:user:%d:limit:%d,offset:%d", userID, limit, offset)
 }

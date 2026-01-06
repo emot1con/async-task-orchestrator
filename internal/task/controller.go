@@ -8,6 +8,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Valid task types that can be processed by workers
+var validTaskTypes = map[string]bool{
+	"send_email":      true,
+	"generate_report": true,
+	"resize_image":    true,
+	"cleanup_temp":    true,
+}
+
 type TaskController struct {
 	service TaskServiceInterface
 }
@@ -26,6 +34,14 @@ func (tc *TaskController) CreateTask(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate task type
+	if !validTaskTypes[req.TaskType] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid task type. Valid types: send_email, generate_report, resize_image, cleanup_temp",
+		})
 		return
 	}
 
@@ -95,6 +111,20 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 // GetTasksByUser handles getting all tasks for a user
 func (tc *TaskController) GetTasksByUser(c *gin.Context) {
 	// Get authenticated user ID from JWT
+	pageQuery := c.Query("page")
+	page, err := strconv.Atoi(pageQuery)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid page"})
+		return
+	}
+
+	limitQuery := c.Query("limit")
+	limit, err := strconv.Atoi(limitQuery)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Invalid page"})
+		return
+	}
+
 	userID, err := auth.GetUserIDFromContext(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
@@ -102,10 +132,11 @@ func (tc *TaskController) GetTasksByUser(c *gin.Context) {
 	}
 
 	// Get tasks for authenticated user only
-	tasks, err := tc.service.GetTasks(userID)
+	tasks, err := tc.service.GetTasks(userID, page, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tasks"})
 		return
+
 	}
 
 	c.JSON(http.StatusOK, gin.H{

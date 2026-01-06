@@ -34,8 +34,12 @@ func (m *MockTaskService) GetTask(id int) (*Task, error) {
 	return args.Get(0).(*Task), args.Error(1)
 }
 
-func (m *MockTaskService) GetTasks(userID int) ([]*Task, error) {
-	args := m.Called(userID)
+func (m *MockTaskService) GetTasks(userID int, page int, limit int) ([]*Task, error) {
+	args := m.Called(userID, page, limit)
+	if page < 1 || limit < 1 {
+		page = 1
+		limit = 15
+	}
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

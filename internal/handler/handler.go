@@ -39,7 +39,7 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, redisClient *redis.Client, jwtSecret string) {
 
 	// Public routes - Authentication
-	authGroup := r.Group("/auth")
+	authGroup := r.Group("/task-handler/auth")
 	{
 		authGroup.POST("/register", userCtrl.Register)
 		authGroup.POST("/login", userCtrl.Login)
@@ -47,7 +47,7 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 	}
 
 	// Protected routes - API v1
-	api := r.Group("/api/v1")
+	api := r.Group("/task-handler/api/v1")
 	api.Use(middleware.AuthMiddleware(jwtSecret))
 	api.Use(middleware.RateLimiterMiddleware(redisClient, middleware.DefaultRateLimiterConfig()))
 	{
