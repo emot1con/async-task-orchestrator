@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"errors"
 	"task_handler/internal/config"
 	"task_handler/internal/middleware"
 	"task_handler/internal/task"
@@ -16,6 +17,37 @@ import (
 func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Client, cfg *config.Config) *gin.Engine {
 
 	r := gin.Default()
+
+	r.GET("/health", func(c *gin.Context) {
+		ctx := c.Request.Context()
+		if err := db.PingContext(ctx); err != nil {
+			c.JSON(503, gin.H{
+				"status": "unhealthy",
+				"db":     "down",
+			})
+			return
+		}
+
+		redisStatus := "ok"
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			redisStatus = "down"
+		}
+
+		if err := checkRabbitMQ(conn); err != nil {
+			c.JSON(503, gin.H{
+				"status": "unhealthy",
+				"db":     "down",
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"status":   "healthy",
+			"db":       "ok",
+			"redis":    redisStatus,
+			"rabbitmq": "ok",
+		})
+	})
 
 	// Initialize repositories
 	userRepo := user.NewUserRepository()
@@ -37,7 +69,6 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 
 // setupRoutes configures all application routes
 func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, redisClient *redis.Client, jwtSecret string) {
-
 	// Public routes - Authentication
 	authGroup := r.Group("/task-handler/auth")
 	{
@@ -56,4 +87,18 @@ func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 		api.GET("/tasks/:id", taskCtrl.GetTask)
 		api.GET("/users/tasks", taskCtrl.GetTasksByUser)
 	}
+}
+
+func checkRabbitMQ(conn *amqp091.Connection) error {
+	if conn == nil || conn.IsClosed() {
+		return errors.New("rabbitmq connection closed")
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	return nil
 }
