@@ -112,17 +112,13 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 func (tc *TaskController) GetTasksByUser(c *gin.Context) {
 	// Get authenticated user ID from JWT
 	pageQuery := c.Query("page")
-	page, err := strconv.Atoi(pageQuery)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "Invalid page"})
-		return
-	}
-
 	limitQuery := c.Query("limit")
-	limit, err := strconv.Atoi(limitQuery)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "Invalid page"})
-		return
+
+	page, pageErr := strconv.Atoi(pageQuery)
+	limit, limitErr := strconv.Atoi(limitQuery)
+	if pageErr != nil || limitErr != nil {
+		page = 1
+		limit = 15
 	}
 
 	userID, err := auth.GetUserIDFromContext(c)

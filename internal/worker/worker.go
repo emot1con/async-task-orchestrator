@@ -74,6 +74,36 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
+		currentTask, err := repo.GetByID(db, payload.ID)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to get task status")
+			msg.Nack(false, true) // requeue
+			continue
+		}
+		if currentTask.Status != "PENDING" {
+			if currentTask.Status == "SUCCESS" {
+				logrus.Infof("Task %d already completed, skipping", payload.ID)
+				msg.Ack(false) // acknowledge duplicate
+				continue
+			}
+
+			if currentTask.Status == "FAILED" {
+				logrus.Infof("Task %d already failed, skipping", payload.ID)
+				msg.Ack(false)
+				continue
+			}
+
+			if currentTask.Status == "PROCESSING" {
+				processingTime := time.Since(currentTask.UpdatedAt)
+				if processingTime < 10*time.Minute {
+					// Another worker is processing, skip
+					logrus.Infof("Task %d being processed by another worker", payload.ID)
+					msg.Nack(false, true) // requeue untuk cek lagi nanti
+					continue
+				}
+			}
+		}
+
 		retryCount := int32(0)
 		if msg.Headers != nil {
 			if count, ok := msg.Headers["x-retry-count"].(int32); ok {
