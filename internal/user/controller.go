@@ -24,10 +24,7 @@ func NewUserController(userService UserServiceInterface, jwtSecret string) *User
 
 // Register handles user registration
 func (a *UserController) Register(c *gin.Context) {
-	var req struct {
-		Username string `json:"username" binding:"required,min=3,max=50"`
-		Password string `json:"password" binding:"required,min=6"`
-	}
+	var req *UserPayload
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -66,11 +63,7 @@ func (a *UserController) Register(c *gin.Context) {
 
 // Login handles user login and returns JWT tokens
 func (a *UserController) Login(c *gin.Context) {
-	var req struct {
-		Username string `json:"username" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-
+	var req *UserPayload
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
@@ -88,10 +81,7 @@ func (a *UserController) Login(c *gin.Context) {
 
 // RefreshToken handles refresh token requests with token rotation
 func (a *UserController) RefreshToken(c *gin.Context) {
-	var req struct {
-		RefreshToken string `json:"refresh_token" binding:"required"`
-	}
-
+	var req *RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
 		return
