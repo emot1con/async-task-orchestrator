@@ -2,7 +2,7 @@ package worker
 
 import (
 	"fmt"
-	"task_handler/internal/task"
+	"task_handler/internal/domain/task"
 	"time"
 
 	"github.com/sirupsen/logrus"

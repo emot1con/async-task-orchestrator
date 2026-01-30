@@ -3,8 +3,8 @@ package main
 import (
 	"task_handler/internal/config"
 	"task_handler/internal/db"
+	"task_handler/internal/domain/task"
 	"task_handler/internal/queue"
-	"task_handler/internal/task"
 	"task_handler/internal/worker"
 
 	"github.com/sirupsen/logrus"

@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"task_handler/internal/config"
+	"task_handler/internal/domain/task"
+	"task_handler/internal/domain/user"
 	"task_handler/internal/middleware"
-	"task_handler/internal/task"
-	"task_handler/internal/user"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"

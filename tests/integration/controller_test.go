@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"task_handler/internal/domain/task"
 	"testing"
 	"time"
 
@@ -21,20 +22,20 @@ type MockTaskService struct {
 	mock.Mock
 }
 
-func (m *MockTaskService) CreateTask(task *Task) error {
+func (m *MockTaskService) CreateTask(task *task.Task) error {
 	args := m.Called(task)
 	return args.Error(0)
 }
 
-func (m *MockTaskService) GetTask(id int) (*Task, error) {
+func (m *MockTaskService) GetTask(id int) (*task.Task, error) {
 	args := m.Called(id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*Task), args.Error(1)
+	return args.Get(0).(*task.Task), args.Error(1)
 }
 
-func (m *MockTaskService) GetTasks(userID int, page int, limit int) ([]*Task, error) {
+func (m *MockTaskService) GetTasks(userID int, page int, limit int) ([]*task.Task, error) {
 	args := m.Called(userID, page, limit)
 	if page < 1 || limit < 1 {
 		page = 1
@@ -43,15 +44,15 @@ func (m *MockTaskService) GetTasks(userID int, page int, limit int) ([]*Task, er
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]*Task), args.Error(1)
+	return args.Get(0).([]*task.Task), args.Error(1)
 }
 
 // setupTestRouter creates a test router with mocked service
-func setupTestRouter(service TaskServiceInterface) (*gin.Engine, *TaskController) {
+func setupTestRouter(service task.TaskServiceInterface) (*gin.Engine, *task.TaskController) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	controller := NewTaskController(service)
+	controller := task.NewTaskController(service)
 
 	return router, controller
 }
@@ -68,7 +69,7 @@ func TestGetTask_Success_OwnTask(t *testing.T) {
 	authenticatedUserID := 1
 	taskID := 123
 
-	expectedTask := &Task{
+	expectedTask := &task.Task{
 		ID:        taskID,
 		UserID:    authenticatedUserID, // Same as authenticated user
 		TaskType:  "IMAGE_RESIZE",
@@ -111,7 +112,7 @@ func TestGetTask_Forbidden_OtherUserTask(t *testing.T) {
 	taskOwnerID := 2 // Different user
 	taskID := 123
 
-	expectedTask := &Task{
+	expectedTask := &task.Task{
 		ID:        taskID,
 		UserID:    taskOwnerID, // Different from authenticated user
 		TaskType:  "IMAGE_RESIZE",
@@ -203,7 +204,7 @@ func TestGetTask_Unauthorized_NoUserInContext(t *testing.T) {
 
 	taskID := 123
 
-	expectedTask := &Task{
+	expectedTask := &task.Task{
 		ID:        taskID,
 		UserID:    1,
 		TaskType:  "IMAGE_RESIZE",
@@ -238,7 +239,7 @@ func TestGetTasksByUser_Success_OwnTasks(t *testing.T) {
 
 	authenticatedUserID := 1
 
-	expectedTasks := []*Task{
+	expectedTasks := []*task.Task{
 		{
 			ID:        1,
 			UserID:    authenticatedUserID,
@@ -288,7 +289,7 @@ func TestGetTasksByUser_EmptyList(t *testing.T) {
 	authenticatedUserID := 1
 
 	// Return empty list
-	mockService.On("GetTasks", authenticatedUserID).Return([]*Task{}, nil)
+	mockService.On("GetTasks", authenticatedUserID).Return([]*task.Task{}, nil)
 
 	router.GET("/users/tasks", func(c *gin.Context) {
 		addAuthenticatedUser(c, authenticatedUserID)
@@ -318,8 +319,8 @@ func TestCreateTask_Success(t *testing.T) {
 
 	authenticatedUserID := 1
 
-	mockService.On("CreateTask", mock.AnythingOfType("*task.Task")).Return(nil).Run(func(args mock.Arguments) {
-		task := args.Get(0).(*Task)
+	mockService.On("CreateTask", mock.AnythingOfType("*task.task.Task")).Return(nil).Run(func(args mock.Arguments) {
+		task := args.Get(0).(*task.Task)
 		task.ID = 123 // Simulate DB assigning ID
 	})
 
@@ -374,7 +375,7 @@ func TestCreateTask_ServiceError(t *testing.T) {
 
 	authenticatedUserID := 1
 
-	mockService.On("CreateTask", mock.AnythingOfType("*task.Task")).Return(errors.New("database error"))
+	mockService.On("CreateTask", mock.AnythingOfType("*task.task.Task")).Return(errors.New("database error"))
 
 	router.POST("/tasks", func(c *gin.Context) {
 		addAuthenticatedUser(c, authenticatedUserID)

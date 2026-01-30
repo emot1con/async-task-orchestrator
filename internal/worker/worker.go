@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"task_handler/internal/task"
+	"task_handler/internal/domain/task"
 	"task_handler/internal/utils"
 	"time"
 
