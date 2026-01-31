@@ -1,4 +1,4 @@
-package worker
+package task_consumer
 
 import (
 	"fmt"

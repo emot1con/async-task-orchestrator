@@ -1,7 +1,6 @@
-package worker
+package task_consumer
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"task_handler/internal/domain/task"
@@ -11,31 +10,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
-
-func republishWithRetry(ch *amqp.Channel, msg *amqp.Delivery, retryCount int32) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Create new headers with incremented retry count
-	headers := amqp.Table{}
-	if msg.Headers != nil {
-		headers = msg.Headers
-	}
-	headers["x-retry-count"] = retryCount
-
-	return ch.PublishWithContext(
-		ctx,
-		"",             // exchange
-		msg.RoutingKey, // routing key (queue name)
-		false,          // mandatory
-		false,          // immediate
-		amqp.Publishing{
-			ContentType: msg.ContentType,
-			Body:        msg.Body,
-			Headers:     headers,
-		},
-	)
-}
 
 func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, id int) {
 	ch, err := conn.Channel()
@@ -158,7 +132,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 			logrus.Infof("Worker %d: Task failed, requeuing (retry %d/3)", id, retryCount+1)
 
-			if err := republishWithRetry(ch, &msg, retryCount+1); err != nil {
+			if err := utils.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
 				logrus.WithError(err).Error("Failed to republish message")
 				if err := msg.Nack(false, false); err != nil {
 					logrus.WithError(err).Warn("Failed to nack message after republish error")

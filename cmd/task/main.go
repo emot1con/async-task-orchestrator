@@ -2,10 +2,10 @@ package main
 
 import (
 	"task_handler/internal/config"
+	"task_handler/internal/consumer/task_consumer"
 	"task_handler/internal/db"
 	"task_handler/internal/domain/task"
 	"task_handler/internal/queue"
-	"task_handler/internal/worker"
 
 	"github.com/sirupsen/logrus"
 )
@@ -47,7 +47,7 @@ func main() {
 	}
 
 	for i := 1; i <= 3; i++ {
-		go worker.StartWorker(conn, db, repo, i)
+		go task_consumer.StartWorker(conn, db, repo, i)
 	}
 
 	select {}
