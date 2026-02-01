@@ -7,7 +7,7 @@ import (
 	"task_handler/internal/domain/user"
 	"task_handler/internal/events"
 	"task_handler/internal/notification"
-	"task_handler/internal/utils"
+	"task_handler/internal/queue"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
@@ -19,15 +19,7 @@ func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInte
 		logrus.Fatalf("Failed to setup rabbitmq chanel on notification service: %v", err)
 	}
 
-	msgs, err := ch.Consume(
-		"notification_queue",
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
+	msgs, err := queue.Consume(ch, "notification_queue")
 	if err != nil {
 		logrus.Fatalf("Failed to consume notification message on notification service: %v", err)
 	}
@@ -77,7 +69,7 @@ func handleNotificationEvent(msg amqp.Delivery, ch *amqp.Channel, notifHandler *
 			return
 		}
 
-		if err := utils.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
+		if err := queue.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
 			logrus.Errorf("Failed to requeue msg on notification service")
 			if err := msg.Nack(false, false); err != nil {
 				logrus.Errorf("Failed to nack event on notification service and republish: %v", err)

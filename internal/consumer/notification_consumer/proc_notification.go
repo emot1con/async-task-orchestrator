@@ -93,7 +93,7 @@ func (h *NotificationHandler) HandleUserRegistered(event *events.UserRegisteredE
 	logrus.Infof("Handling user registered notification for user %d", event.Data.UserID)
 
 	// For now, use username as email
-	userEmail := event.Data.Username + "@example.com" // TODO: Use actual email from event
+	userEmail := event.Data.Username + "@gmail.com" // TODO: Use actual email from event
 
 	// Send welcome email
 	err := h.emailSender.SendUserRegisteredEmail(

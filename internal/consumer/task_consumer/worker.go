@@ -3,9 +3,12 @@ package task_consumer
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"task_handler/internal/domain/task"
 	"task_handler/internal/events"
+	"task_handler/internal/queue"
 	"task_handler/internal/utils"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
@@ -22,15 +25,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		logrus.Fatalf("Worker %d failed to set QoS: %v", workerID, err)
 	}
 
-	msgs, err := ch.Consume(
-		"task_queue",
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
+	msgs, err := queue.Consume(ch, "task_queue")
 	if err != nil {
 		logrus.Fatalf("Worker %d failed to start consuming messages: %v", workerID, err)
 		return
@@ -62,7 +57,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			msg.Nack(false, true) // requeue
 			continue
 		}
-		if err := utils.CheckTaskStatus(currentTask.Status, eventID, msg, currentTask.UpdatedAt); err != nil {
+		if err := checkTaskStatus(currentTask.Status, eventID, msg, currentTask.UpdatedAt); err != nil {
 			logrus.Error(err)
 			continue
 		}
@@ -74,13 +69,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			}
 		}
 
-		logrus.Infof(
-			"Worker %d processing task=%s for user=%d (retry: %d)",
-			workerID,
-			task.TaskType,
-			task.UserID,
-			retryCount,
-		)
+		logrus.Infof("Worker %d processing task=%s for user=%d (retry: %d)", workerID, task.TaskType, task.UserID, retryCount)
 
 		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
@@ -121,7 +110,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 			logrus.Infof("Worker %d: Task failed, requeuing (retry %d/3)", workerID, retryCount+1)
 
-			if err := utils.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
+			if err := queue.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
 				logrus.WithError(err).Error("Failed to republish message")
 				if err := msg.Nack(false, false); err != nil {
 					logrus.WithError(err).Warn("Failed to nack message after republish error")
@@ -139,4 +128,27 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			logrus.WithError(err).Warn("Failed to ack message")
 		}
 	}
+}
+
+func checkTaskStatus(status, eventID string, msg amqp.Delivery, updatedAt time.Time) error {
+	if status != events.StatusPending {
+		if status == events.StatusSuccess {
+			msg.Ack(false) // acknowledge duplicate
+			return fmt.Errorf("Task %s already completed, skipping", eventID)
+		}
+		if status == events.StatusFailed {
+			msg.Ack(false)
+			return fmt.Errorf("Task %s already failed, skipping", eventID)
+
+		}
+		if status == events.StatusProcessing {
+			processingTime := time.Since(updatedAt)
+			if processingTime < 10*time.Minute {
+				msg.Nack(false, true) // requeue untuk cek lagi nanti
+				return fmt.Errorf("Task %s being processed by another worker", eventID)
+
+			}
+		}
+	}
+	return nil
 }

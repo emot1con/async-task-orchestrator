@@ -74,16 +74,7 @@ func (s *TaskService) CreateTask(task *Task) error {
 		logrus.WithError(err).Warn("Failed to delete user tasks cache after creating new task")
 	}
 
-	return ch.Publish(
-		"",
-		"task_queue",
-		false,
-		false,
-		amqp.Publishing{
-			ContentType: "application/json",
-			Body:        eventJSON,
-		},
-	)
+	return queue.Publish(ch, "task_queue", eventJSON)
 }
 
 func (s *TaskService) GetTask(taskID int) (*Task, error) {

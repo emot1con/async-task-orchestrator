@@ -12,18 +12,33 @@ services:
       - redis
       - rabbitmq
       - migrate
-      - worker
+      - task-worker
     env_file:
       - .env
     networks:
       - backend
     restart: always
 
-  worker:
+  task-worker:
     build:
       context: .
-      dockerfile: docker/worker.Dockerfile
-    container_name: worker
+      dockerfile: docker/task-worker.Dockerfile
+    container_name: task-worker
+    depends_on:
+      - rabbitmq
+      - postgres
+      - migrate
+    env_file:
+      - .env
+    networks:
+      - backend
+    restart: always
+    
+  notification-worker:
+    build:
+      context: .
+      dockerfile: docker/notification-worker.Dockerfile
+    container_name: notification-worker
     depends_on:
       - rabbitmq
       - postgres

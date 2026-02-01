@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o task-worker ./cmd/task-worker
 
 FROM alpine:latest
 
@@ -16,6 +16,6 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder /app/worker .
+COPY --from=builder /app/task-worker .
 
-CMD ["./worker"]
+CMD ["./task-worker"]
