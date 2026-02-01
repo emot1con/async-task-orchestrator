@@ -48,13 +48,15 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		eventID := event.EventID
-		taskID := event.Data.TaskID
-		userID := event.Data.UserID
-		taskType := event.Data.TaskType
-		correlationID := event.Metadata.CorrelationID
+		task := new(task.TaskPayload)
+		task.TaskID = event.Data.TaskID
+		task.UserID = event.Data.UserID
+		task.TaskType = event.Data.TaskType
 
-		currentTask, err := repo.GetByID(db, taskID)
+		eventID := event.EventID
+		// correlationID := event.Metadata.CorrelationID
+
+		currentTask, err := repo.GetByID(db, task.TaskID)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to get task status")
 			msg.Nack(false, true) // requeue
@@ -75,15 +77,15 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		logrus.Infof(
 			"Worker %d processing task=%s for user=%d (retry: %d)",
 			id,
-			taskType,
-			userID,
+			task.TaskType,
+			task.UserID,
 			retryCount,
 		)
 
 		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, eventID)
-			return repo.MarkProcessing(tx, eventID)
+			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, task.TaskID)
+			return repo.MarkProcessing(tx, task.TaskID)
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to mark task as processing")
 			if err := msg.Nack(false, true); err != nil {
@@ -92,22 +94,22 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		taskErr := handleTask(&event, id)
+		taskErr := handleTask(task, id)
 
 		// Transaction 2: Mark as SUCCESS or FAILED
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 			if taskErr != nil {
 				logrus.WithError(taskErr).Error("task failed")
-				return repo.MarkFailed(tx, event.ID, taskErr.Error())
+				return repo.MarkFailed(tx, task.TaskID, taskErr.Error())
 			}
-			return repo.MarkSuccess(tx, event.ID, "result.txt")
+			return repo.MarkSuccess(tx, task.TaskID, "result.txt")
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to update task status")
 
 			// Check retry logic
 			if retryCount >= 3 {
 				if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-					return repo.MarkFailed(tx, event.ID, "max retries reached")
+					return repo.MarkFailed(tx, task.TaskID, "max retries reached")
 				}); err != nil {
 					logrus.WithError(err).Error("Failed to mark task as failed after max retries")
 				}

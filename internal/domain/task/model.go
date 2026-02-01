@@ -3,7 +3,7 @@ package task
 import "time"
 
 type Task struct {
-	ID           int
+	TaskID       int
 	UserID       int
 	TaskType     string
 	Status       string
@@ -14,13 +14,13 @@ type Task struct {
 }
 
 type TaskPayload struct {
-	ID       int    `json:"id"`
+	TaskID   int    `json:"task_id"`
 	UserID   int    `json:"user_id"`
 	TaskType string `json:"task_type"`
 }
 
 type TaskResponse struct {
-	ID         int
+	TaskID     int
 	Status     string
 	ResultFile *string
 	Error      *string

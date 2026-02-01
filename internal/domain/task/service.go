@@ -51,13 +51,13 @@ func (s *TaskService) CreateTask(task *Task) error {
 		if err != nil {
 			return err
 		}
-		task.ID = taskID
+		task.TaskID = taskID
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	event := events.NewTaskCreatedEvent(task.ID, task.UserID, task.TaskType, "")
+	event := events.NewTaskCreatedEvent(task.TaskID, task.UserID, task.TaskType, "")
 
 	eventJSON, err := json.Marshal(event)
 	if err != nil {

@@ -34,39 +34,39 @@ func (r *TaskRepository) Create(
 		RETURNING id
 	`
 
-	var id int
+	var taskID int
 	err := tx.QueryRow(
 		query,
 		task.UserID,
 		task.TaskType,
 		task.Status,
-	).Scan(&id)
+	).Scan(&taskID)
 
 	if err != nil {
 		return 0, err
 	}
 
-	return id, nil
+	return taskID, nil
 }
 
 func (r *TaskRepository) GetByID(
 	db *sql.DB,
-	id int,
+	taskID int,
 ) (*Task, error) {
 	query := `
 		SELECT
-			id, user_id, task_type, status,
+			task_id, user_id, task_type, status,
 			result_file, error_message,
 			created_at, updated_at
 		FROM tasks
-		WHERE id = $1
+		WHERE task_id = $1
 	`
 
-	row := db.QueryRow(query, id)
+	row := db.QueryRow(query, taskID)
 
 	var t Task
 	err := row.Scan(
-		&t.ID,
+		&t.TaskID,
 		&t.UserID,
 		&t.TaskType,
 		&t.Status,
@@ -93,7 +93,7 @@ func (r *TaskRepository) GetByUserID(
 ) ([]*Task, error) {
 	query := `
 		SELECT
-			id, user_id, task_type, status,
+			task_id, user_id, task_type, status,
 			result_file, error_message,
 			created_at, updated_at
 		FROM tasks
@@ -116,7 +116,7 @@ func (r *TaskRepository) GetByUserID(
 	for rows.Next() {
 		var t Task
 		err := rows.Scan(
-			&t.ID,
+			&t.TaskID,
 			&t.UserID,
 			&t.TaskType,
 			&t.Status,
@@ -141,21 +141,21 @@ func (r *TaskRepository) GetByUserID(
 
 func (r *TaskRepository) MarkProcessing(
 	tx *sql.Tx,
-	id int,
+	taskID int,
 ) error {
-	logrus.Info("Marking task as PROCESSING: ", id)
+	logrus.Info("Marking task as PROCESSING: ", taskID)
 	query := `
 		UPDATE tasks
 		SET status = 'PROCESSING', updated_at = NOW()
-		WHERE id = $1
+		WHERE task_id = $1
 	`
-	_, err := tx.Exec(query, id)
+	_, err := tx.Exec(query, taskID)
 	return err
 }
 
 func (r *TaskRepository) MarkSuccess(
 	tx *sql.Tx,
-	id int,
+	taskID int,
 	resultFile string,
 ) error {
 	query := `
@@ -163,9 +163,9 @@ func (r *TaskRepository) MarkSuccess(
 		SET status = 'SUCCESS',
 		    result_file = $1,
 		    updated_at = NOW()
-		WHERE id = $2
+		WHERE task_id = $2
 	`
-	_, err := tx.Exec(query, resultFile, id)
+	_, err := tx.Exec(query, resultFile, taskID)
 	return err
 }
 
@@ -179,7 +179,7 @@ func (r *TaskRepository) MarkFailed(
 		SET status = 'FAILED',
 		    error_message = $1,
 		    updated_at = NOW()
-		WHERE id = $2
+		WHERE task_id = $2
 	`
 	_, err := tx.Exec(query, errorMessage, id)
 	return err

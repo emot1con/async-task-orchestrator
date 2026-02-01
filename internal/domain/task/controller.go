@@ -64,7 +64,7 @@ func (tc *TaskController) CreateTask(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"task_id": task.ID,
+		"task_id": task.TaskID,
 		"status":  task.Status,
 		"message": "Task created successfully",
 	})
@@ -97,7 +97,7 @@ func (tc *TaskController) GetTask(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":            task.ID,
+		"id":            task.TaskID,
 		"user_id":       task.UserID,
 		"task_type":     task.TaskType,
 		"status":        task.Status,

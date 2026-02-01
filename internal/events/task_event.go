@@ -14,7 +14,6 @@ type TaskCreatedData struct {
 	UserID    int       `json:"user_id"`
 	TaskType  string    `json:"task_type"`
 	Status    string    `json:"status"`
-	Priority  string    `json:"priority,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

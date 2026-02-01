@@ -85,7 +85,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./migrations:/migrations
+      - ./migrations:/migrations:Z
     command: [
       "-path", "/migrations",
       "-database", "postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable",
