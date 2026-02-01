@@ -11,15 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, id int) {
+func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, workerID int) {
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.Fatalf("Worker %d failed to open channel: %v", id, err)
+		logrus.Fatalf("Worker %d failed to open channel: %v", workerID, err)
 	}
 	defer ch.Close()
 
 	if err := ch.Qos(1, 0, false); err != nil {
-		logrus.Fatalf("Worker %d failed to set QoS: %v", id, err)
+		logrus.Fatalf("Worker %d failed to set QoS: %v", workerID, err)
 	}
 
 	msgs, err := ch.Consume(
@@ -32,11 +32,11 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		nil,
 	)
 	if err != nil {
-		logrus.Fatalf("Worker %d failed to start consuming messages: %v", id, err)
+		logrus.Fatalf("Worker %d failed to start consuming messages: %v", workerID, err)
 		return
 	}
 
-	logrus.Infof("Worker %d started", id)
+	logrus.Infof("Worker %d started", workerID)
 
 	for msg := range msgs {
 		var event events.TaskCreatedEvent
@@ -76,7 +76,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 		logrus.Infof(
 			"Worker %d processing task=%s for user=%d (retry: %d)",
-			id,
+			workerID,
 			task.TaskType,
 			task.UserID,
 			retryCount,
@@ -84,7 +84,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, task.TaskID)
+			logrus.Infof("Worker %d: Marking task %d as PROCESSING", workerID, task.TaskID)
 			return repo.MarkProcessing(tx, task.TaskID)
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to mark task as processing")
@@ -94,7 +94,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		taskErr := handleTask(task, id)
+		taskErr := handleTask(task, workerID)
 
 		// Transaction 2: Mark as SUCCESS or FAILED
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
@@ -119,7 +119,7 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 				continue
 			}
 
-			logrus.Infof("Worker %d: Task failed, requeuing (retry %d/3)", id, retryCount+1)
+			logrus.Infof("Worker %d: Task failed, requeuing (retry %d/3)", workerID, retryCount+1)
 
 			if err := utils.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
 				logrus.WithError(err).Error("Failed to republish message")

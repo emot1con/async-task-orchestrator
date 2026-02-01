@@ -17,14 +17,14 @@ type TaskCreatedData struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TaskCompletedEvent - emitted when task succeeds
-type TaskCompletedEvent struct {
+// TaskSucceddEvent - emitted when task succeeds
+type TaskSucceddEvent struct {
 	BaseEvent
-	Data     TaskCompletedData `json:"data"`
-	Metadata Metadata          `json:"metadata"`
+	Data     TaskSucceddData `json:"data"`
+	Metadata Metadata        `json:"metadata"`
 }
 
-type TaskCompletedData struct {
+type TaskSucceddData struct {
 	TaskID           int       `json:"task_id"`
 	UserID           int       `json:"user_id"`
 	TaskType         string    `json:"task_type"`
