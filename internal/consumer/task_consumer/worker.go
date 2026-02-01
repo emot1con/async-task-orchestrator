@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"task_handler/internal/domain/task"
+	"task_handler/internal/events"
 	"task_handler/internal/utils"
-	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
@@ -39,8 +39,8 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 	logrus.Infof("Worker %d started", id)
 
 	for msg := range msgs {
-		var payload task.TaskPayload
-		if err := json.Unmarshal(msg.Body, &payload); err != nil {
+		var event events.TaskCreatedEvent
+		if err := json.Unmarshal(msg.Body, &event); err != nil {
 			logrus.Error("invalid payload")
 			if err := msg.Nack(false, false); err != nil {
 				logrus.WithError(err).Warn("Failed to nack message")
@@ -48,34 +48,21 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		currentTask, err := repo.GetByID(db, payload.ID)
+		eventID := event.EventID
+		taskID := event.Data.TaskID
+		userID := event.Data.UserID
+		taskType := event.Data.TaskType
+		correlationID := event.Metadata.CorrelationID
+
+		currentTask, err := repo.GetByID(db, taskID)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to get task status")
 			msg.Nack(false, true) // requeue
 			continue
 		}
-		if currentTask.Status != "PENDING" {
-			if currentTask.Status == "SUCCESS" {
-				logrus.Infof("Task %d already completed, skipping", payload.ID)
-				msg.Ack(false) // acknowledge duplicate
-				continue
-			}
-
-			if currentTask.Status == "FAILED" {
-				logrus.Infof("Task %d already failed, skipping", payload.ID)
-				msg.Ack(false)
-				continue
-			}
-
-			if currentTask.Status == "PROCESSING" {
-				processingTime := time.Since(currentTask.UpdatedAt)
-				if processingTime < 10*time.Minute {
-					// Another worker is processing, skip
-					logrus.Infof("Task %d being processed by another worker", payload.ID)
-					msg.Nack(false, true) // requeue untuk cek lagi nanti
-					continue
-				}
-			}
+		if err := utils.CheckTaskStatus(currentTask.Status, eventID, msg, currentTask.UpdatedAt); err != nil {
+			logrus.Error(err)
+			continue
 		}
 
 		retryCount := int32(0)
@@ -88,15 +75,15 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		logrus.Infof(
 			"Worker %d processing task=%s for user=%d (retry: %d)",
 			id,
-			payload.TaskType,
-			payload.UserID,
+			taskType,
+			userID,
 			retryCount,
 		)
 
 		// Transaction 1: Mark as PROCESSING (commit immediately)
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, payload.ID)
-			return repo.MarkProcessing(tx, payload.ID)
+			logrus.Infof("Worker %d: Marking task %d as PROCESSING", id, eventID)
+			return repo.MarkProcessing(tx, eventID)
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to mark task as processing")
 			if err := msg.Nack(false, true); err != nil {
@@ -105,22 +92,22 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 			continue
 		}
 
-		taskErr := handleTask(&payload, id)
+		taskErr := handleTask(&event, id)
 
 		// Transaction 2: Mark as SUCCESS or FAILED
 		if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 			if taskErr != nil {
 				logrus.WithError(taskErr).Error("task failed")
-				return repo.MarkFailed(tx, payload.ID, taskErr.Error())
+				return repo.MarkFailed(tx, event.ID, taskErr.Error())
 			}
-			return repo.MarkSuccess(tx, payload.ID, "result.txt")
+			return repo.MarkSuccess(tx, event.ID, "result.txt")
 		}); err != nil {
 			logrus.WithError(err).Error("Failed to update task status")
 
 			// Check retry logic
 			if retryCount >= 3 {
 				if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
-					return repo.MarkFailed(tx, payload.ID, "max retries reached")
+					return repo.MarkFailed(tx, event.ID, "max retries reached")
 				}); err != nil {
 					logrus.WithError(err).Error("Failed to mark task as failed after max retries")
 				}

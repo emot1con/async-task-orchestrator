@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"task_handler/internal/cache"
+	"task_handler/internal/events"
 	"task_handler/internal/queue"
 	"task_handler/internal/utils"
 	"time"
@@ -56,6 +57,13 @@ func (s *TaskService) CreateTask(task *Task) error {
 		return err
 	}
 
+	event := events.NewTaskCreatedEvent(task.ID, task.UserID, task.TaskType, "")
+
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
 	ch, err := queue.CreateChannel(s.conn)
 	if err != nil {
 		return err
@@ -73,11 +81,7 @@ func (s *TaskService) CreateTask(task *Task) error {
 		false,
 		amqp.Publishing{
 			ContentType: "application/json",
-			Body: []byte(`{
-			"id": ` + fmt.Sprintf("%d", task.ID) + `,
-			"user_id": ` + fmt.Sprintf("%d", task.UserID) + `,
-			"task_type": ` + fmt.Sprintf("%q", task.TaskType) + `
-		}`),
+			Body:        eventJSON,
 		},
 	)
 }

@@ -92,3 +92,5 @@ tmp/
 *.bak
 *.backup
 *~
+
+*.hmtl
