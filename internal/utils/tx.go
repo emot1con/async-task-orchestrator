@@ -28,37 +28,3 @@ func WithTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
 	logrus.Info("Transaction committed successfully")
 	return tx.Commit()
 }
-
-// func StartWorker(conn *amqp.Connection, workerID int) {
-//     ch, err := CreateChannel(conn)
-//     if err != nil {
-//         log.Fatalf("worker %d failed to create channel: %v", workerID, err)
-//     }
-//     defer ch.Close()
-
-//     ch.Qos(1, 0, false)
-
-//     msgs, err := ch.Consume(
-//         "task_queue",
-//         "",
-//         false, // manual ACK
-//         false,
-//         false,
-//         false,
-//         nil,
-//     )
-//     if err != nil {
-//         log.Fatalf("worker %d failed to consume: %v", workerID, err)
-//     }
-
-//     log.Printf("Worker %d started", workerID)
-
-//     for msg := range msgs {
-//         log.Printf("Worker %d received: %s", workerID, msg.Body)
-
-//         // simulasi proses
-//         time.Sleep(2 * time.Second)
-
-//         msg.Ack(false)
-//     }
-// }

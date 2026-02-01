@@ -30,3 +30,5 @@ const (
 	StatusSuccess    = "SUCCESS"
 	StatusFailed     = "FAILED"
 )
+
+const MaxRetries = 3
