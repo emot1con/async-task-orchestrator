@@ -1,9 +1,11 @@
 package task_consumer
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"task_handler/internal/cache"
 	"task_handler/internal/domain/task"
 	"task_handler/internal/events"
 	"task_handler/internal/queue"
@@ -14,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, workerID int) {
+func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) {
 	ch, err := conn.Channel()
 	if err != nil {
 		logrus.Fatalf("Worker %d failed to open channel: %v", workerID, err)
@@ -25,21 +27,22 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		logrus.Fatalf("Worker %d failed to set QoS: %v", workerID, err)
 	}
 
-	msgs, err := queue.Consume(ch, "task_queue")
+	msgs, err := queue.Consume(ch, events.TaskQueueName)
 	if err != nil {
 		logrus.Fatalf("Worker %d failed to start consuming messages: %v", workerID, err)
 		return
 	}
 
-	logrus.Infof("Worker %d started", workerID)
+	logrus.Infof("Worker %d task started", workerID)
 
 	for msg := range msgs {
-		processMessage(ch, db, repo, workerID, msg)
+		processMessage(ch, db, repo, taskCache, workerID, msg)
 	}
 }
 
-func processMessage(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, workerID int, msg amqp.Delivery) {
+func processMessage(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int, msg amqp.Delivery) {
 	// Parse and validate event
+	logrus.Infof("Worker %d received a message and validating message", workerID)
 	taskPayload, event, retryCount, err := parseAndValidateMessage(db, repo, msg)
 	if err != nil {
 		logrus.WithError(err).Error("Message validation failed")
@@ -59,7 +62,7 @@ func processMessage(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterf
 	taskErr := handleTask(taskPayload, workerID)
 
 	// Update final status and handle retry if needed
-	handleTaskResult(ch, db, repo, msg, taskPayload, event, taskErr, retryCount, workerID)
+	handleTaskResult(ch, db, repo, taskCache, msg, taskPayload, event, taskErr, retryCount, workerID)
 }
 
 // parseAndValidateMessage parses event and validates task status
@@ -111,7 +114,7 @@ func markAsProcessing(db *sql.DB, repo task.TaskRepositoryInterface, taskID int,
 	})
 }
 
-func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, msg amqp.Delivery, taskPayload *task.TaskPayload, originalEvent *events.TaskCreatedEvent, taskErr error, retryCount int32, workerID int) {
+func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, msg amqp.Delivery, taskPayload *task.TaskPayload, originalEvent *events.TaskCreatedEvent, taskErr error, retryCount int32, workerID int) {
 	err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 		if taskErr != nil {
 			logrus.WithError(taskErr).Error("task failed")
@@ -133,6 +136,14 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 		return publishTaskCompletedEvent(ch, taskPayload, originalEvent.Metadata.CorrelationID, "result.txt", taskData.UpdatedAt, workerID)
 	})
 	if err == nil {
+		// Invalidate cache (consistent with task service pattern)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		if cacheErr := taskCache.DeleteTaskCache(ctx, taskPayload.TaskID, taskPayload.UserID); cacheErr != nil {
+			logrus.WithError(cacheErr).Warn("Failed to invalidate task cache after update")
+		}
+
 		if ackErr := msg.Ack(false); ackErr != nil {
 			logrus.WithError(ackErr).Warn("Failed to ack message")
 		}
@@ -213,7 +224,7 @@ func publishTaskCompletedEvent(ch *amqp.Channel, taskPayload *task.TaskPayload, 
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	if err := queue.Publish(ch, "notification_queue", eventJSON); err != nil {
+	if err := queue.Publish(ch, events.NotificationQueueName, eventJSON); err != nil {
 		logrus.WithError(err).Error("Failed to publish task.completed event")
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
@@ -241,7 +252,7 @@ func publishTaskFailedEvent(ch *amqp.Channel, taskPayload *task.TaskPayload, cor
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	if err := queue.Publish(ch, "notification_queue", eventJSON); err != nil {
+	if err := queue.Publish(ch, events.NotificationQueueName, eventJSON); err != nil {
 		logrus.WithError(err).Error("Failed to publish task.failed event")
 		return fmt.Errorf("failed to publish event: %w", err)
 	}

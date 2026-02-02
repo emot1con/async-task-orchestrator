@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o notification-worker ./cmd/notification-worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o notification-worker ./cmd/notification
 
 FROM alpine:latest
 

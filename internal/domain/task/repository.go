@@ -31,7 +31,7 @@ func (r *TaskRepository) Create(
 			user_id, task_type, status, created_at, updated_at
 		)
 		VALUES ($1, $2, $3, NOW(), NOW())
-		RETURNING id
+		RETURNING task_id
 	`
 
 	var taskID int

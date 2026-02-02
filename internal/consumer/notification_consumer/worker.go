@@ -19,12 +19,12 @@ func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInte
 		logrus.Fatalf("Failed to setup rabbitmq chanel on notification service: %v", err)
 	}
 
-	msgs, err := queue.Consume(ch, "notification_queue")
+	msgs, err := queue.Consume(ch, events.NotificationQueueName)
 	if err != nil {
 		logrus.Fatalf("Failed to consume notification message on notification service: %v", err)
 	}
 
-	logrus.Infof("Worker %d started", workerID)
+	logrus.Infof("Worker %d notification started", workerID)
 
 	emailSender := notification.NewEmailSender()
 	notifHandler := NewNotificationHandler(emailSender, repo, DB)
@@ -62,13 +62,15 @@ func handleNotificationEvent(msg amqp.Delivery, ch *amqp.Channel, notifHandler *
 			}
 		}
 
-		if retryCount > 3 {
+		if retryCount >= 3 {
+			logrus.Errorf("Max retry reached for event: %s", base.EventType)
 			if err := msg.Nack(false, false); err != nil {
 				logrus.Errorf("Failed to nack event on notification service: %v", err)
 			}
 			return
 		}
 
+		logrus.Errorf("Error handling event %s: %v. Retrying (%d)", base.EventType, err, retryCount+1)
 		if err := queue.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
 			logrus.Errorf("Failed to requeue msg on notification service")
 			if err := msg.Nack(false, false); err != nil {
@@ -77,8 +79,8 @@ func handleNotificationEvent(msg amqp.Delivery, ch *amqp.Channel, notifHandler *
 			return
 		}
 
-		if err := msg.Nack(false, true); err != nil {
-			logrus.Errorf("Failed to requeue nack event on notification service: %v", err)
+		if err := msg.Ack(false); err != nil {
+			logrus.Errorf("Failed to ack event on notification service: %v", err)
 			return
 		}
 	} else {

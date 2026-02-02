@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o task-worker ./cmd/task-worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o task-worker ./cmd/task
 
 FROM alpine:latest
 

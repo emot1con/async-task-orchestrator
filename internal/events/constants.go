@@ -32,3 +32,9 @@ const (
 )
 
 const MaxRetries = 3
+
+const (
+	TaskQueueName         = "task_queue"
+	NotificationQueueName = "notification_queue"
+	LoggingQueueName      = "logging_queue"
+)

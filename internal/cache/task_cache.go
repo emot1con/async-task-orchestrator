@@ -9,7 +9,8 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-const TaskCacheTTL = 1 * time.Hour
+const TasksCacheTTL = 5 * time.Minute
+const TaskCacheTTL = 5 * time.Second
 
 type TaskCache struct {
 	client *redis.Client
@@ -58,7 +59,7 @@ func (c *TaskCache) SetTasks(ctx context.Context, key string, data interface{}) 
 	if err != nil {
 		return err
 	}
-	return c.client.Set(ctx, key, jsonData, TaskCacheTTL).Err()
+	return c.client.Set(ctx, key, jsonData, TasksCacheTTL).Err()
 }
 
 func (c *TaskCache) DeleteCacheByPattern(ctx context.Context, key string) error {
@@ -89,6 +90,19 @@ func (c *TaskCache) DeleteCacheByPattern(ctx context.Context, key string) error 
 	}
 
 	return nil
+}
+
+// DeleteTaskCache deletes single task cache and all related user tasks cache
+func (c *TaskCache) DeleteTaskCache(ctx context.Context, taskID, userID int) error {
+	// Delete single task cache
+	taskKey := TaskKey(taskID)
+	if err := c.client.Del(ctx, taskKey).Err(); err != nil {
+		return err
+	}
+
+	// Delete all user tasks cache (with pattern matching)
+	userTasksPattern := fmt.Sprintf("tasks:user:%d*", userID)
+	return c.DeleteCacheByPattern(ctx, userTasksPattern)
 }
 
 // Build cache key for single task

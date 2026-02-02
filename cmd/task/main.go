@@ -1,6 +1,7 @@
 package main
 
 import (
+	"task_handler/internal/cache"
 	"task_handler/internal/config"
 	"task_handler/internal/consumer/task_consumer"
 	"task_handler/internal/db"
@@ -23,6 +24,16 @@ func main() {
 			logrus.WithError(err).Fatal("Failed to close database connection")
 		}
 	}()
+
+	// Setup Redis for cache
+	redisClient := cache.SetupRedis(&cfg.Redis)
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			logrus.WithError(err).Error("Failed to close Redis connection")
+		}
+	}()
+
+	taskCache := cache.NewTaskCache(redisClient)
 
 	conn := queue.SetupRabbitMQ(&cfg.RabbitMQ)
 	defer func() {
@@ -47,7 +58,7 @@ func main() {
 	}
 
 	for i := 1; i <= 3; i++ {
-		go task_consumer.StartWorker(conn, db, repo, i)
+		go task_consumer.StartWorker(conn, db, repo, taskCache, i)
 	}
 
 	select {}
