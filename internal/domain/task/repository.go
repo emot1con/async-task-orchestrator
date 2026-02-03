@@ -126,7 +126,11 @@ func (r *TaskRepository) GetByUserID(
 			&t.UpdatedAt,
 		)
 		if err != nil {
-			logrus.Error("Error scanning task row: ", err)
+			logrus.WithFields(logrus.Fields{
+				"service": "task_repository",
+				"user_id": userID,
+				"error":   err.Error(),
+			}).Error("Error scanning task row")
 			continue
 		}
 		tasks = append(tasks, &t)
@@ -143,7 +147,6 @@ func (r *TaskRepository) MarkProcessing(
 	tx *sql.Tx,
 	taskID int,
 ) error {
-	logrus.Info("Marking task as PROCESSING: ", taskID)
 	query := `
 		UPDATE tasks
 		SET status = 'PROCESSING', updated_at = NOW()

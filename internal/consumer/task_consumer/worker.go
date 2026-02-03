@@ -19,21 +19,38 @@ import (
 func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) {
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.Fatalf("Worker %d failed to open channel: %v", workerID, err)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"error":     err.Error(),
+		}).Fatal("Failed to open RabbitMQ channel")
 	}
 	defer ch.Close()
 
 	if err := ch.Qos(1, 0, false); err != nil {
-		logrus.Fatalf("Worker %d failed to set QoS: %v", workerID, err)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"error":     err.Error(),
+		}).Fatal("Failed to set QoS")
 	}
 
 	msgs, err := queue.Consume(ch, events.TaskQueueName)
 	if err != nil {
-		logrus.Fatalf("Worker %d failed to start consuming messages: %v", workerID, err)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"queue":     events.TaskQueueName,
+			"error":     err.Error(),
+		}).Fatal("Failed to start consuming messages")
 		return
 	}
 
-	logrus.Infof("Worker %d task started", workerID)
+	logrus.WithFields(logrus.Fields{
+		"worker_id": workerID,
+		"service":   "task_consumer",
+		"queue":     events.TaskQueueName,
+	}).Info("Worker started successfully")
 
 	for msg := range msgs {
 		processMessage(ch, db, repo, taskCache, workerID, msg)
@@ -42,18 +59,33 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 
 func processMessage(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int, msg amqp.Delivery) {
 	// Parse and validate event
-	logrus.Infof("Worker %d received a message and validating message", workerID)
 	taskPayload, event, retryCount, err := parseAndValidateMessage(db, repo, msg)
 	if err != nil {
-		logrus.WithError(err).Error("Message validation failed")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"error":     err.Error(),
+		}).Error("Message validation failed")
 		return // message already acked/nacked inside
 	}
 
-	logrus.Infof("Worker %d processing task=%s for user=%d (retry: %d)", workerID, taskPayload.TaskType, taskPayload.UserID, retryCount)
+	logrus.WithFields(logrus.Fields{
+		"worker_id":   workerID,
+		"service":     "task_consumer",
+		"task_id":     taskPayload.TaskID,
+		"user_id":     taskPayload.UserID,
+		"task_type":   taskPayload.TaskType,
+		"retry_count": retryCount,
+	}).Info("Processing task")
 
 	// Mark as PROCESSING
 	if err := markAsProcessing(db, repo, taskPayload.TaskID, workerID); err != nil {
-		logrus.WithError(err).Error("Failed to mark task as processing")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"error":     err.Error(),
+		}).Error("Failed to mark task as processing")
 		msg.Nack(false, true)
 		return
 	}
@@ -86,7 +118,11 @@ func parseAndValidateMessage(db *sql.DB, repo task.TaskRepositoryInterface, msg 
 	// Validate task status
 	currentTask, err := repo.GetByID(db, taskPayload.TaskID)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to get task status")
+		logrus.WithFields(logrus.Fields{
+			"service": "task_consumer",
+			"task_id": taskPayload.TaskID,
+			"error":   err.Error(),
+		}).Error("Failed to get task status from database")
 		msg.Nack(false, true)
 		return nil, nil, 0, fmt.Errorf("failed to get task status")
 	}
@@ -109,7 +145,12 @@ func getRetryCount(msg amqp.Delivery) int32 {
 
 func markAsProcessing(db *sql.DB, repo task.TaskRepositoryInterface, taskID int, workerID int) error {
 	return utils.WithTransaction(db, func(tx *sql.Tx) error {
-		logrus.Infof("Worker %d: Marking task %d as PROCESSING", workerID, taskID)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskID,
+			"status":    "PROCESSING",
+		}).Info("Marking task as PROCESSING")
 		return repo.MarkProcessing(tx, taskID)
 	})
 }
@@ -117,7 +158,13 @@ func markAsProcessing(db *sql.DB, repo task.TaskRepositoryInterface, taskID int,
 func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, msg amqp.Delivery, taskPayload *task.TaskPayload, originalEvent *events.TaskCreatedEvent, taskErr error, retryCount int32, workerID int) {
 	err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 		if taskErr != nil {
-			logrus.WithError(taskErr).Error("task failed")
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "task_consumer",
+				"task_id":   taskPayload.TaskID,
+				"user_id":   taskPayload.UserID,
+				"error":     taskErr.Error(),
+			}).Error("Task execution failed")
 			if updateErr := repo.MarkFailed(tx, taskPayload.TaskID, taskErr.Error()); updateErr != nil {
 				return updateErr
 			}
@@ -129,7 +176,12 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 
 		taskData, err := repo.GetByID(db, taskPayload.TaskID)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to get task details")
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "task_consumer",
+				"task_id":   taskPayload.TaskID,
+				"error":     err.Error(),
+			}).Error("Failed to get task details after success")
 			msg.Nack(false, true)
 			return err
 		}
@@ -141,43 +193,81 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 		defer cancel()
 
 		if cacheErr := taskCache.DeleteTaskCache(ctx, taskPayload.TaskID, taskPayload.UserID); cacheErr != nil {
-			logrus.WithError(cacheErr).Warn("Failed to invalidate task cache after update")
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "task_consumer",
+				"task_id":   taskPayload.TaskID,
+				"user_id":   taskPayload.UserID,
+				"error":     cacheErr.Error(),
+			}).Warn("Failed to invalidate task cache after update")
 		}
 
 		if ackErr := msg.Ack(false); ackErr != nil {
-			logrus.WithError(ackErr).Warn("Failed to ack message")
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "task_consumer",
+				"task_id":   taskPayload.TaskID,
+				"error":     ackErr.Error(),
+			}).Warn("Failed to ack message")
 		}
 		return
 	}
 
 	// If update failed, handle retry logic
-	logrus.WithError(err).Error("Failed to update task status")
+	logrus.WithFields(logrus.Fields{
+		"worker_id": workerID,
+		"service":   "task_consumer",
+		"task_id":   taskPayload.TaskID,
+		"error":     err.Error(),
+	}).Error("Failed to update task status")
 
 	if retryCount >= events.MaxRetries {
-		markAsMaxRetriesReached(db, repo, taskPayload.TaskID)
+		markAsMaxRetriesReached(db, repo, taskPayload.TaskID, taskPayload.UserID, workerID)
 		msg.Nack(false, false)
 		return
 	}
 
 	// Retry: republish message with incremented retry count
-	logrus.Infof("Worker %d: Task failed, requeuing (retry %d/%d)", workerID, retryCount+1, events.MaxRetries)
+	logrus.WithFields(logrus.Fields{
+		"worker_id":   workerID,
+		"service":     "task_consumer",
+		"task_id":     taskPayload.TaskID,
+		"retry_count": retryCount + 1,
+		"max_retries": events.MaxRetries,
+	}).Info("Task failed, requeuing for retry")
 
 	if err := queue.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
-		logrus.WithError(err).Error("Failed to republish message")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"error":     err.Error(),
+		}).Error("Failed to republish message for retry")
 		msg.Nack(false, false)
 		return
 	}
 
 	if ackErr := msg.Ack(false); ackErr != nil {
-		logrus.WithError(ackErr).Warn("Failed to ack message after republish")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"error":     ackErr.Error(),
+		}).Warn("Failed to ack message after republish")
 	}
 }
 
-func markAsMaxRetriesReached(db *sql.DB, repo task.TaskRepositoryInterface, taskID int) {
+func markAsMaxRetriesReached(db *sql.DB, repo task.TaskRepositoryInterface, taskID, userID, workerID int) {
 	if err := utils.WithTransaction(db, func(tx *sql.Tx) error {
 		return repo.MarkFailed(tx, taskID, "max retries reached")
 	}); err != nil {
-		logrus.WithError(err).Error("Failed to mark task as failed after max retries")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskID,
+			"user_id":   userID,
+			"error":     err.Error(),
+		}).Error("Failed to mark task as failed after max retries")
 	}
 }
 
@@ -220,16 +310,37 @@ func publishTaskCompletedEvent(ch *amqp.Channel, taskPayload *task.TaskPayload, 
 
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to marshal task.completed event")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"event":     "task.completed",
+			"error":     err.Error(),
+		}).Error("Failed to marshal task.completed event")
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
 	if err := queue.Publish(ch, events.NotificationQueueName, eventJSON); err != nil {
-		logrus.WithError(err).Error("Failed to publish task.completed event")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"event":     "task.completed",
+			"queue":     events.NotificationQueueName,
+			"error":     err.Error(),
+		}).Error("Failed to publish task.completed event")
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
 
-	logrus.Infof("Published task.completed event for task_id=%d to notification_queue", taskPayload.TaskID)
+	logrus.WithFields(logrus.Fields{
+		"worker_id":       workerID,
+		"service":         "task_consumer",
+		"task_id":         taskPayload.TaskID,
+		"event":           "task.completed",
+		"queue":           events.NotificationQueueName,
+		"processing_time": processingTime,
+	}).Info("Published task.completed event")
+
 	return nil
 }
 
@@ -248,15 +359,36 @@ func publishTaskFailedEvent(ch *amqp.Channel, taskPayload *task.TaskPayload, cor
 
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to marshal task.failed event")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"event":     "task.failed",
+			"error":     err.Error(),
+		}).Error("Failed to marshal task.failed event")
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
 	if err := queue.Publish(ch, events.NotificationQueueName, eventJSON); err != nil {
-		logrus.WithError(err).Error("Failed to publish task.failed event")
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "task_consumer",
+			"task_id":   taskPayload.TaskID,
+			"event":     "task.failed",
+			"queue":     events.NotificationQueueName,
+			"error":     err.Error(),
+		}).Error("Failed to publish task.failed event")
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
 
-	logrus.Infof("Published task.failed event for task_id=%d to notification_queue", taskPayload.TaskID)
+	logrus.WithFields(logrus.Fields{
+		"worker_id":   workerID,
+		"service":     "task_consumer",
+		"task_id":     taskPayload.TaskID,
+		"event":       "task.failed",
+		"queue":       events.NotificationQueueName,
+		"retry_count": retryCount,
+	}).Info("Published task.failed event")
+
 	return nil
 }

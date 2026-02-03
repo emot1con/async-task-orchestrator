@@ -15,8 +15,8 @@ import (
 )
 
 func main() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
+	logrus.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: "2006-01-02 15:04:05",
 	})
 
 	config := config.Load()
@@ -50,7 +50,10 @@ func main() {
 	}
 
 	go func() {
-		logrus.Info("Starting server on :8087")
+		logrus.WithFields(logrus.Fields{
+			"service": "api",
+			"port":    "8087",
+		}).Info("Starting HTTP server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.WithError(err).Fatal("Failed to start server")
 		}
@@ -58,5 +61,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	logrus.Info("Shutting down server...")
+	logrus.WithFields(logrus.Fields{
+		"service": "api",
+	}).Info("Shutting down server gracefully")
 }

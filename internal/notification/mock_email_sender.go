@@ -12,28 +12,33 @@ type MockEmailSender struct{}
 
 // NewMockEmailSender creates a new mock email sender
 func NewMockEmailSender() *MockEmailSender {
-	logrus.Info("Using MockEmailSender - emails will be logged, not sent")
+	logrus.WithFields(logrus.Fields{
+		"service": "email_sender",
+		"mode":    "mock",
+	}).Info("Using MockEmailSender - emails will be logged, not sent")
 	return &MockEmailSender{}
 }
 
-// SendEmail logs email instead of sending
+// SendEmail logs email instead of sending (without PII)
 func (m *MockEmailSender) SendEmail(to, subject, body string) error {
-	logrus.Info("===============================================")
-	logrus.Info("MOCK EMAIL SENT")
-	logrus.Infof("To: %s", to)
-	logrus.Infof("Subject: %s", subject)
-	logrus.Info("Body: (HTML content - see below)")
-	logrus.Info("-----------------------------------------------")
-	// Log body as plain text for readability (strip HTML in real scenario)
-	logrus.Info(body)
-	logrus.Info("===============================================")
+	logrus.WithFields(logrus.Fields{
+		"service": "email_sender",
+		"mode":    "mock",
+		"subject": subject,
+	}).Info("Mock email sent") // Don't log email address or body (may contain PII)
 	return nil
 }
 
 // SendTaskSucceddEmail logs task completion email
 func (m *MockEmailSender) SendTaskSucceddEmail(userEmail string, taskID int, taskType string, resultFile string) error {
-	logrus.Infof("📧 MOCK: Sending task completed email to %s", userEmail)
-	logrus.Infof("   Task ID: %d, Type: %s, Result: %s", taskID, taskType, resultFile)
+	logrus.WithFields(logrus.Fields{
+		"service":     "email_sender",
+		"mode":        "mock",
+		"email_type":  "task_completed",
+		"task_id":     taskID,
+		"task_type":   taskType,
+		"result_file": resultFile,
+	}).Info("Mock: Sending task completed email") // Don't log email address (PII)
 
 	return m.SendEmail(
 		userEmail,
@@ -44,8 +49,14 @@ func (m *MockEmailSender) SendTaskSucceddEmail(userEmail string, taskID int, tas
 
 // SendTaskFailedEmail logs task failure email
 func (m *MockEmailSender) SendTaskFailedEmail(userEmail string, taskID int, taskType string, errorMessage string, retryCount int) error {
-	logrus.Infof("📧 MOCK: Sending task failed email to %s", userEmail)
-	logrus.Infof("   Task ID: %d, Type: %s, Error: %s, Retries: %d", taskID, taskType, errorMessage, retryCount)
+	logrus.WithFields(logrus.Fields{
+		"service":     "email_sender",
+		"mode":        "mock",
+		"email_type":  "task_failed",
+		"task_id":     taskID,
+		"task_type":   taskType,
+		"retry_count": retryCount,
+	}).Info("Mock: Sending task failed email") // Don't log email address or error details (may contain sensitive info)
 
 	return m.SendEmail(
 		userEmail,
@@ -56,8 +67,11 @@ func (m *MockEmailSender) SendTaskFailedEmail(userEmail string, taskID int, task
 
 // SendUserRegisteredEmail logs welcome email
 func (m *MockEmailSender) SendUserRegisteredEmail(userEmail, username string) error {
-	logrus.Infof("📧 MOCK: Sending welcome email to %s", userEmail)
-	logrus.Infof("   Username: %s", username)
+	logrus.WithFields(logrus.Fields{
+		"service":    "email_sender",
+		"mode":       "mock",
+		"email_type": "user_registered",
+	}).Info("Mock: Sending welcome email") // Don't log email address or username (PII)
 
 	return m.SendEmail(
 		userEmail,

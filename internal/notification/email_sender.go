@@ -57,11 +57,18 @@ func (e *EmailSender) SendEmail(to, subject, body string) error {
 	err := smtp.SendMail(addr, auth, e.config.FromEmail, []string{to}, msg)
 
 	if err != nil {
-		logrus.WithError(err).Errorf("Failed to send email to %s", to)
+		logrus.WithFields(logrus.Fields{
+			"service": "email_sender",
+			"subject": subject,
+			"error":   err.Error(),
+		}).Error("Failed to send email") // Don't log email address (PII)
 		return err
 	}
 
-	logrus.Infof("Email sent successfully to %s", to)
+	logrus.WithFields(logrus.Fields{
+		"service": "email_sender",
+		"subject": subject,
+	}).Info("Email sent successfully") // Don't log email address (PII)
 	return nil
 }
 

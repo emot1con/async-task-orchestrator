@@ -16,15 +16,28 @@ import (
 func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInterface, workerID int, cfg *config.Config) {
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.Fatalf("Failed to setup rabbitmq chanel on notification service: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "notification_consumer",
+			"error":     err.Error(),
+		}).Fatal("Failed to setup RabbitMQ channel")
 	}
 
 	msgs, err := queue.Consume(ch, events.NotificationQueueName)
 	if err != nil {
-		logrus.Fatalf("Failed to consume notification message on notification service: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"worker_id": workerID,
+			"service":   "notification_consumer",
+			"queue":     events.NotificationQueueName,
+			"error":     err.Error(),
+		}).Fatal("Failed to consume messages from queue")
 	}
 
-	logrus.Infof("Worker %d notification started", workerID)
+	logrus.WithFields(logrus.Fields{
+		"worker_id": workerID,
+		"service":   "notification_consumer",
+		"queue":     events.NotificationQueueName,
+	}).Info("Worker started successfully")
 
 	emailSender := notification.NewEmailSender()
 	notifHandler := NewNotificationHandler(emailSender, repo, DB)
@@ -37,9 +50,15 @@ func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInte
 func handleNotificationEvent(msg amqp.Delivery, ch *amqp.Channel, notifHandler *NotificationHandler) {
 	var base events.BaseEvent
 	if err := json.Unmarshal(msg.Body, &base); err != nil {
-		logrus.Errorf("Failed to unmarshal msg to base event on notification consumer: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"service": "notification_consumer",
+			"error":   err.Error(),
+		}).Error("Failed to unmarshal message to BaseEvent")
 		if err := msg.Nack(false, false); err != nil {
-			logrus.Errorf("Failed nack msg on notification service")
+			logrus.WithFields(logrus.Fields{
+				"service": "notification_consumer",
+				"error":   err.Error(),
+			}).Error("Failed to nack message")
 		}
 		return
 	}
@@ -63,30 +82,70 @@ func handleNotificationEvent(msg amqp.Delivery, ch *amqp.Channel, notifHandler *
 		}
 
 		if retryCount >= 3 {
-			logrus.Errorf("Max retry reached for event: %s", base.EventType)
+			logrus.WithFields(logrus.Fields{
+				"service":     "notification_consumer",
+				"event_id":    base.EventID,
+				"event_type":  base.EventType,
+				"retry_count": retryCount,
+			}).Error("Max retry reached, message will be dead-lettered")
 			if err := msg.Nack(false, false); err != nil {
-				logrus.Errorf("Failed to nack event on notification service: %v", err)
+				logrus.WithFields(logrus.Fields{
+					"service":    "notification_consumer",
+					"event_id":   base.EventID,
+					"event_type": base.EventType,
+					"error":      err.Error(),
+				}).Error("Failed to nack message after max retry")
 			}
 			return
 		}
 
-		logrus.Errorf("Error handling event %s: %v. Retrying (%d)", base.EventType, err, retryCount+1)
+		logrus.WithFields(logrus.Fields{
+			"service":     "notification_consumer",
+			"event_id":    base.EventID,
+			"event_type":  base.EventType,
+			"retry_count": retryCount,
+			"error":       err.Error(),
+		}).Warn("Event handling failed, will retry")
 		if err := queue.RepublishWithRetry(ch, &msg, retryCount+1); err != nil {
-			logrus.Errorf("Failed to requeue msg on notification service")
+			logrus.WithFields(logrus.Fields{
+				"service":    "notification_consumer",
+				"event_id":   base.EventID,
+				"event_type": base.EventType,
+				"error":      err.Error(),
+			}).Error("Failed to republish message for retry")
 			if err := msg.Nack(false, false); err != nil {
-				logrus.Errorf("Failed to nack event on notification service and republish: %v", err)
+				logrus.WithFields(logrus.Fields{
+					"service":    "notification_consumer",
+					"event_id":   base.EventID,
+					"event_type": base.EventType,
+					"error":      err.Error(),
+				}).Error("Failed to nack message after republish failure")
 			}
 			return
 		}
 
 		if err := msg.Ack(false); err != nil {
-			logrus.Errorf("Failed to ack event on notification service: %v", err)
+			logrus.WithFields(logrus.Fields{
+				"service":    "notification_consumer",
+				"event_id":   base.EventID,
+				"event_type": base.EventType,
+				"error":      err.Error(),
+			}).Error("Failed to ack message after republish")
 			return
 		}
 	} else {
-		logrus.Infof("Successfully handled event: %s", base.EventType)
+		logrus.WithFields(logrus.Fields{
+			"service":    "notification_consumer",
+			"event_id":   base.EventID,
+			"event_type": base.EventType,
+		}).Info("Event handled successfully")
 		if err := msg.Ack(false); err != nil {
-			logrus.Errorf("Failed to ack event on notification service: %v", err)
+			logrus.WithFields(logrus.Fields{
+				"service":    "notification_consumer",
+				"event_id":   base.EventID,
+				"event_type": base.EventType,
+				"error":      err.Error(),
+			}).Error("Failed to ack message after successful handling")
 			return
 		}
 	}

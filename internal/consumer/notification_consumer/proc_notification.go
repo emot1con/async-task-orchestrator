@@ -27,16 +27,15 @@ func NewNotificationHandler(emailSender notification.EmailSenderInterface, userR
 
 // HandleTaskSuccedd handles task completion notification
 func (h *NotificationHandler) HandleTaskSuccedd(event *events.TaskSucceddEvent) error {
-	logrus.Infof("Handling task succeeded notification for task %d", event.Data.TaskID)
+	logrus.WithFields(logrus.Fields{
+		"service":   "notification_handler",
+		"event":     "task.completed",
+		"task_id":   event.Data.TaskID,
+		"user_id":   event.Data.UserID,
+		"task_type": event.Data.TaskType,
+	}).Info("Handling task completed notification")
 
-	// // Get user email from database
-	// user, err := h.userRepo.GetByID(h.db, event.Data.UserID)
-	// if err != nil {
-	// 	logrus.WithError(err).Errorf("Failed to get user %d for notification", event.Data.UserID)
-	// 	return err
-	// }
-
-	// For now, use username as email (in production, you should have email field in users table)
+	// For now, use hardcoded email (in production, you should have email field in users table)
 	userEmail := "taskhandleremot1con@gmail.com" // TODO: Add email field to users table
 
 	// Send email notification
@@ -48,26 +47,37 @@ func (h *NotificationHandler) HandleTaskSuccedd(event *events.TaskSucceddEvent) 
 	)
 
 	if err != nil {
-		logrus.WithError(err).Errorf("Failed to send task completed email to user %d", event.Data.UserID)
+		logrus.WithFields(logrus.Fields{
+			"service": "notification_handler",
+			"event":   "task.completed",
+			"task_id": event.Data.TaskID,
+			"user_id": event.Data.UserID,
+			"error":   err.Error(),
+		}).Error("Failed to send task completed email")
 		return err
 	}
 
-	logrus.Infof("Successfully sent task completed notification to user %d", event.Data.UserID)
+	logrus.WithFields(logrus.Fields{
+		"service": "notification_handler",
+		"event":   "task.completed",
+		"task_id": event.Data.TaskID,
+		"user_id": event.Data.UserID,
+	}).Info("Successfully sent task completed notification")
 	return nil
 }
 
 // HandleTaskFailed handles task failure notification
 func (h *NotificationHandler) HandleTaskFailed(event *events.TaskFailedEvent) error {
-	logrus.Infof("Handling task failed notification for task %d", event.Data.TaskID)
+	logrus.WithFields(logrus.Fields{
+		"service":     "notification_handler",
+		"event":       "task.failed",
+		"task_id":     event.Data.TaskID,
+		"user_id":     event.Data.UserID,
+		"task_type":   event.Data.TaskType,
+		"retry_count": event.Data.RetryCount,
+	}).Info("Handling task failed notification")
 
-	// // Get user email from database
-	// user, err := h.userRepo.GetByID(h.db, event.Data.UserID)
-	// if err != nil {
-	// 	logrus.WithError(err).Errorf("Failed to get user %d for notification", event.Data.UserID)
-	// 	return err
-	// }
-
-	// For now, use username as email (in production, you should have email field in users table)
+	// For now, use hardcoded email (in production, you should have email field in users table)
 	userEmail := "taskhandleremot1con@gmail.com" // TODO: Add email field to users table
 
 	// Send email notification
@@ -80,17 +90,33 @@ func (h *NotificationHandler) HandleTaskFailed(event *events.TaskFailedEvent) er
 	)
 
 	if err != nil {
-		logrus.WithError(err).Errorf("Failed to send task failed email to user %d", event.Data.UserID)
+		logrus.WithFields(logrus.Fields{
+			"service": "notification_handler",
+			"event":   "task.failed",
+			"task_id": event.Data.TaskID,
+			"user_id": event.Data.UserID,
+			"error":   err.Error(),
+		}).Error("Failed to send task failed email")
 		return err
 	}
 
-	logrus.Infof("Successfully sent task failed notification to user %d", event.Data.UserID)
+	logrus.WithFields(logrus.Fields{
+		"service": "notification_handler",
+		"event":   "task.failed",
+		"task_id": event.Data.TaskID,
+		"user_id": event.Data.UserID,
+	}).Info("Successfully sent task failed notification")
 	return nil
 }
 
 // HandleUserRegistered handles user registration welcome email
 func (h *NotificationHandler) HandleUserRegistered(event *events.UserRegisteredEvent) error {
-	logrus.Infof("Handling user registered notification for user %d", event.Data.UserID)
+	logrus.WithFields(logrus.Fields{
+		"service":  "notification_handler",
+		"event":    "user.registered",
+		"user_id":  event.Data.UserID,
+		"username": event.Data.Username,
+	}).Info("Handling user registered notification")
 
 	// For now, use username as email
 	userEmail := event.Data.Username + "@gmail.com" // TODO: Use actual email from event
@@ -102,10 +128,21 @@ func (h *NotificationHandler) HandleUserRegistered(event *events.UserRegisteredE
 	)
 
 	if err != nil {
-		logrus.WithError(err).Errorf("Failed to send welcome email to user %s", event.Data.Username)
+		logrus.WithFields(logrus.Fields{
+			"service":  "notification_handler",
+			"event":    "user.registered",
+			"user_id":  event.Data.UserID,
+			"username": event.Data.Username,
+			"error":    err.Error(),
+		}).Error("Failed to send welcome email")
 		return err
 	}
 
-	logrus.Infof("Successfully sent welcome email to user %s", event.Data.Username)
+	logrus.WithFields(logrus.Fields{
+		"service":  "notification_handler",
+		"event":    "user.registered",
+		"user_id":  event.Data.UserID,
+		"username": event.Data.Username,
+	}).Info("Successfully sent welcome email")
 	return nil
 }

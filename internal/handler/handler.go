@@ -6,7 +6,7 @@ import (
 	"task_handler/internal/config"
 	"task_handler/internal/domain/task"
 	"task_handler/internal/domain/user"
-	"task_handler/internal/middleware"
+	"task_handler/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -61,31 +61,9 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 	taskController := task.NewTaskController(taskService)
 
 	// Setup routes
-	setupRoutes(r, userController, taskController, redisClient, cfg.JWT.Secret)
+	router.SetupRoutes(r, userController, taskController, redisClient, cfg.JWT.Secret)
 
 	return r
-}
-
-// setupRoutes configures all application routes
-func setupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, redisClient *redis.Client, jwtSecret string) {
-	// Public routes - Authentication
-	authGroup := r.Group("/task-handler/auth")
-	{
-		authGroup.POST("/register", userCtrl.Register)
-		authGroup.POST("/login", userCtrl.Login)
-		authGroup.POST("/refresh", userCtrl.RefreshToken)
-	}
-
-	// Protected routes - API v1
-	api := r.Group("/task-handler/api/v1")
-	api.Use(middleware.AuthMiddleware(jwtSecret))
-	api.Use(middleware.RateLimiterMiddleware(redisClient, middleware.DefaultRateLimiterConfig()))
-	{
-		// Task endpoints
-		api.POST("/tasks", taskCtrl.CreateTask)
-		api.GET("/tasks/:id", taskCtrl.GetTask)
-		api.GET("/users/tasks", taskCtrl.GetTasksByUser)
-	}
 }
 
 func checkRabbitMQ(conn *amqp091.Connection) error {

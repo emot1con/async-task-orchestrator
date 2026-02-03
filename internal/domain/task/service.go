@@ -87,7 +87,11 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 	if err == nil && cachedData != nil {
 		var task Task
 		if json.Unmarshal(cachedData, &task) == nil {
-			logrus.Info("cache hit for task ", taskID)
+			logrus.WithFields(logrus.Fields{
+				"service": "task_service",
+				"task_id": taskID,
+				"cache":   "hit",
+			}).Debug("Cache hit for task")
 			return &task, nil
 		}
 	}
@@ -98,7 +102,11 @@ func (s *TaskService) GetTask(taskID int) (*Task, error) {
 		return nil, err
 	}
 
-	logrus.Info("cache miss for task ", taskID)
+	logrus.WithFields(logrus.Fields{
+		"service": "task_service",
+		"task_id": taskID,
+		"cache":   "miss",
+	}).Debug("Cache miss for task, fetched from database")
 	// Set cache (ignore error, cache miss is not critical)
 	if err := s.cache.SetTask(ctx, cacheKey, task); err != nil {
 		logrus.WithError(err).Warn("Failed to set cache for task")
@@ -119,11 +127,23 @@ func (s *TaskService) GetTasks(userID int, page int, limit int) ([]*Task, error)
 	if err == nil && cachedData != nil {
 		var tasks []*Task
 		if json.Unmarshal(cachedData, &tasks) == nil {
-			logrus.Infof("cache hit for user %d tasks", userID)
+			logrus.WithFields(logrus.Fields{
+				"service": "task_service",
+				"user_id": userID,
+				"page":    page,
+				"limit":   limit,
+				"cache":   "hit",
+			}).Debug("Cache hit for user tasks")
 			return tasks, nil
 		}
 	}
-	logrus.Infof("cache miss for user %d tasks", userID)
+	logrus.WithFields(logrus.Fields{
+		"service": "task_service",
+		"user_id": userID,
+		"page":    page,
+		"limit":   limit,
+		"cache":   "miss",
+	}).Debug("Cache miss for user tasks, fetched from database")
 
 	// Cache miss, get from DB
 	tasks, err := s.repo.GetByUserID(s.DB, userID, offset, limit)

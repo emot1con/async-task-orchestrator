@@ -15,12 +15,15 @@ func SetupRedis(redisCfg *config.RedisConfig) *redis.Client {
 
 	port, err := strconv.Atoi(redisCfg.RedisDB)
 	if err != nil {
-		logrus.Fatalf("Invalid Redis DB number: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"service": "redis",
+			"error":   err.Error(),
+		}).Fatal("Invalid Redis DB number")
 	}
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     addr,
-		Password: redisCfg.RedisPassword,
+		Password: redisCfg.RedisPassword, // Don't log password
 		DB:       port,
 	})
 
@@ -28,8 +31,21 @@ func SetupRedis(redisCfg *config.RedisConfig) *redis.Client {
 	ctx := context.Background()
 	_, err = rdb.Ping(ctx).Result()
 	if err != nil {
-		logrus.Fatalf("Failed to connect to Redis: %v", err)
+		logrus.WithFields(logrus.Fields{
+			"service": "redis",
+			"host":    redisCfg.Host,
+			"port":    redisCfg.Port,
+			"db":      port,
+			"error":   err.Error(),
+		}).Fatal("Failed to connect to Redis")
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"service": "redis",
+		"host":    redisCfg.Host,
+		"port":    redisCfg.Port,
+		"db":      port,
+	}).Info("Redis connection established successfully")
 
 	return rdb
 }

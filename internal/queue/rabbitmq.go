@@ -3,11 +3,11 @@ package queue
 import (
 	"context"
 	"fmt"
-	"log"
 	"task_handler/internal/config"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sirupsen/logrus"
 )
 
 func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *amqp.Connection {
@@ -16,9 +16,14 @@ func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *amqp.Connection {
 
 	maxRetries := 5
 	for i := 0; i < maxRetries; i++ {
-		conn, err = amqp.Dial(rabbitMQCfg.URL)
+		conn, err = amqp.Dial(rabbitMQCfg.URL) // URL contains credentials, don't log it
 		if err != nil {
-			log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v", i+1, maxRetries, err)
+			logrus.WithFields(logrus.Fields{
+				"service":     "rabbitmq",
+				"attempt":     i + 1,
+				"max_retries": maxRetries,
+				"error":       err.Error(),
+			}).Warn("Failed to connect to RabbitMQ")
 			time.Sleep(time.Duration(i+1) * time.Second)
 			continue
 		}
@@ -27,10 +32,16 @@ func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *amqp.Connection {
 	}
 
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ after %d attempts: %v", maxRetries, err)
+		logrus.WithFields(logrus.Fields{
+			"service":     "rabbitmq",
+			"max_retries": maxRetries,
+			"error":       err.Error(),
+		}).Fatal("Failed to connect to RabbitMQ after retries")
 	}
 
-	log.Println("RabbitMQ connection established successfully")
+	logrus.WithFields(logrus.Fields{
+		"service": "rabbitmq",
+	}).Info("RabbitMQ connection established successfully")
 	return conn
 }
 

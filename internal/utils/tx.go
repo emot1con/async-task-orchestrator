@@ -9,7 +9,6 @@ func WithTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
 	if err != nil {
 		return err
 	}
-	logrus.Info("Transaction started")
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -25,6 +24,5 @@ func WithTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
 		return err
 	}
 
-	logrus.Info("Transaction committed successfully")
 	return tx.Commit()
 }

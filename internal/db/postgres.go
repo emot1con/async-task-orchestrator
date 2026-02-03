@@ -3,14 +3,15 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"task_handler/internal/config"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/sirupsen/logrus"
 )
 
 func Init(DBCfg *config.DBConfig) *sql.DB {
+	// Don't log full DSN (contains password)
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", DBCfg.Host, DBCfg.Port, DBCfg.User, DBCfg.Password, DBCfg.Name, DBCfg.SSLMode)
 
 	var db *sql.DB
@@ -20,15 +21,32 @@ func Init(DBCfg *config.DBConfig) *sql.DB {
 	for i := 0; i < maxRetries; i++ {
 		db, err = sql.Open("pgx", dsn)
 		if err != nil {
-			log.Printf("Failed to open database connection (attempt %d/%d): %v", i+1, maxRetries, err)
+			logrus.WithFields(logrus.Fields{
+				"service":     "database",
+				"attempt":     i + 1,
+				"max_retries": maxRetries,
+				"host":        DBCfg.Host,
+				"database":    DBCfg.Name,
+				"error":       err.Error(),
+			}).Warn("Failed to open database connection")
 			time.Sleep(time.Duration(i+1) * time.Second)
 			continue
 		}
 
 		if err = db.Ping(); err != nil {
-			log.Printf("Failed to ping database (attempt %d/%d): %v", i+1, maxRetries, err)
+			logrus.WithFields(logrus.Fields{
+				"service":     "database",
+				"attempt":     i + 1,
+				"max_retries": maxRetries,
+				"host":        DBCfg.Host,
+				"database":    DBCfg.Name,
+				"error":       err.Error(),
+			}).Warn("Failed to ping database")
 			if err := db.Close(); err != nil {
-				log.Printf("Failed to close database connection: %v", err)
+				logrus.WithFields(logrus.Fields{
+					"service": "database",
+					"error":   err.Error(),
+				}).Error("Failed to close database connection")
 			}
 			time.Sleep(time.Duration(i+1) * time.Second)
 			continue
@@ -39,7 +57,13 @@ func Init(DBCfg *config.DBConfig) *sql.DB {
 	}
 
 	if err != nil {
-		log.Fatalf("Failed to connect to database after %d attempts: %v", maxRetries, err)
+		logrus.WithFields(logrus.Fields{
+			"service":     "database",
+			"max_retries": maxRetries,
+			"host":        DBCfg.Host,
+			"database":    DBCfg.Name,
+			"error":       err.Error(),
+		}).Fatal("Failed to connect to database after retries")
 	}
 
 	db.SetMaxOpenConns(100)
@@ -47,6 +71,10 @@ func Init(DBCfg *config.DBConfig) *sql.DB {
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
-	log.Println("Database connection established successfully")
+	logrus.WithFields(logrus.Fields{
+		"service":  "database",
+		"host":     DBCfg.Host,
+		"database": DBCfg.Name,
+	}).Info("Database connection established successfully")
 	return db
 }
