@@ -15,6 +15,9 @@ services:
       - task-worker
     env_file:
       - .env
+    environment:
+      - SERVICE_NAME=api
+      - GIN_MODE=release
     networks:
       - backend
     restart: always
@@ -34,6 +37,8 @@ services:
       - migrate
     env_file:
       - .env
+    environment:
+      - SERVICE_NAME=task-worker
     networks:
       - backend
     restart: always
@@ -51,6 +56,8 @@ services:
       - migrate
     env_file:
       - .env
+    environment:
+      - SERVICE_NAME=notification-worker
     networks:
       - backend
     restart: always

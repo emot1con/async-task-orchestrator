@@ -1,27 +1,30 @@
 package logger
 
 import (
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
+// serviceHook adds service name to every log entry automatically
+type serviceHook struct {
+	service string
+}
+
+func (h *serviceHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *serviceHook) Fire(entry *logrus.Entry) error {
+	// Only set if not already present (allow override)
+	if _, exists := entry.Data["service"]; !exists {
+		entry.Data["service"] = h.service
+	}
+	return nil
+}
+
 func InitLogger() {
-	// if err := os.MkdirAll(logPath, 0755); err != nil {
-	// 	return err
-	// }
-
-	// // Buka atau buat file log
-	// logFile, err := os.OpenFile(logPath+"/app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// log = logrus.New()
-
-	// multiWriter := io.MultiWriter(os.Stdout, logFile)
-	// log.SetOutput(multiWriter)
-
 	logrus.SetFormatter(&logrus.JSONFormatter{
 		TimestampFormat: time.RFC3339,
 		FieldMap: logrus.FieldMap{
@@ -32,4 +35,13 @@ func InitLogger() {
 	})
 
 	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetOutput(os.Stdout)
+
+	// Detect service name from environment variable or default
+	serviceName := os.Getenv("SERVICE_NAME")
+	if serviceName == "" {
+		serviceName = "unknown"
+	}
+
+	logrus.AddHook(&serviceHook{service: serviceName})
 }

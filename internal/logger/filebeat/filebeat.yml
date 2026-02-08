@@ -1,25 +1,32 @@
-filebeat.inputs:
-  - type: container
-    paths:
-      - /var/lib/docker/containers/*/*.log
-    # include_lines: ['^{.*"level".*}$']
-    processors:
-      - decode_json_fields:
-          fields: ["message"]
-          target: ""
-          overwrite_keys: true
-      - add_docker_metadata:
-          host: "unix:///var/run/docker.sock"
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: false
+      templates:
+        - condition:
+            contains:
+              docker.container.labels.logging.enabled: "true"
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+              close_inactive: 5m
+              clean_inactive: 24h
+              ignore_older: 12h
+              scan_frequency: 10s
+
+filebeat.registry.path: /usr/share/filebeat/data/registry
+filebeat.registry.file_permissions: 0600
+
+processors:
+  - add_docker_metadata:
+      host: "unix:///var/run/docker.sock"
 
 output.logstash:
   hosts: ["logstash:5044"]
+  bulk_max_size: 256
+  backoff.init: 1s
+  backoff.max: 60s
 
-logging.level: info
-logging.to_files: true
-logging.files:
-  path: /var/lib/filebeat
-  name: filebeat
-  keepfiles: 7
-  permissions: 0644
-
-          
+logging.level: warning
+logging.to_stderr: true

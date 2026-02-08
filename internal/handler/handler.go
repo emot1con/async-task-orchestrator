@@ -15,7 +15,7 @@ import (
 
 // SetupHandler initializes all dependencies and routes
 func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Client, cfg *config.Config) *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
 
 	r.GET("/health", func(c *gin.Context) {
 		ctx := c.Request.Context()
