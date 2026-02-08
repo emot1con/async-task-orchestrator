@@ -11,8 +11,11 @@ import (
 
 // setupRoutes configures all application routes
 func SetupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.TaskController, redisClient *redis.Client, jwtSecret string) {
+	r.Use(gin.Recovery())
+
 	// Public routes - Authentication
 	authGroup := r.Group("/task-handler/auth")
+	authGroup.Use(middleware.LoggerMiddleware())
 	{
 		authGroup.POST("/register", userCtrl.Register)
 		authGroup.POST("/login", userCtrl.Login)
@@ -21,6 +24,7 @@ func SetupRoutes(r *gin.Engine, userCtrl *user.UserController, taskCtrl *task.Ta
 
 	// Protected routes - API v1
 	api := r.Group("/task-handler/api/v1")
+	api.Use(middleware.LoggerMiddleware())
 	api.Use(middleware.AuthMiddleware(jwtSecret))
 	api.Use(middleware.RateLimiterMiddleware(redisClient, middleware.DefaultRateLimiterConfig()))
 	{

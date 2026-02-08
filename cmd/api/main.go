@@ -5,30 +5,28 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"task_handler/internal/cache"
 	"task_handler/internal/config"
 	"task_handler/internal/db"
 	"task_handler/internal/handler"
+	"task_handler/internal/logger"
 	"task_handler/internal/queue"
 
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	logrus.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: "2006-01-02 15:04:05",
-	})
+	logger.InitLogger()
 
 	config := config.Load()
-	db := db.Init(&config.DB)
+	psqlDB := db.Init(&config.DB)
 
 	defer func() {
-		if err := db.Close(); err != nil {
+		if err := psqlDB.Close(); err != nil {
 			logrus.WithError(err).Fatal("Failed to close database connection")
 		}
 	}()
 
-	rdb := cache.SetupRedis(&config.Redis)
+	rdb := db.SetupRedis(&config.Redis)
 	defer func() {
 		if err := rdb.Close(); err != nil {
 			logrus.WithError(err).Fatal("Failed to close redis connection")
@@ -42,7 +40,7 @@ func main() {
 		}
 	}()
 
-	r := handler.SetupHandler(db, conn, rdb, config)
+	r := handler.SetupHandler(psqlDB, conn, rdb, config)
 
 	srv := &http.Server{
 		Addr:    ":8087",

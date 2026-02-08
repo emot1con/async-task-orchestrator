@@ -6,27 +6,26 @@ import (
 	"task_handler/internal/consumer/task_consumer"
 	"task_handler/internal/db"
 	"task_handler/internal/domain/task"
+	"task_handler/internal/logger"
 	"task_handler/internal/queue"
 
 	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	logrus.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: "2006-01-02 15:04:05",
-	})
+	logger.InitLogger()
 
 	cfg := config.Load()
 
-	db := db.Init(&cfg.DB)
+	psqlDB := db.Init(&cfg.DB)
 	defer func() {
-		if err := db.Close(); err != nil {
+		if err := psqlDB.Close(); err != nil {
 			logrus.WithError(err).Fatal("Failed to close database connection")
 		}
 	}()
 
 	// Setup Redis for cache
-	redisClient := cache.SetupRedis(&cfg.Redis)
+	redisClient := db.SetupRedis(&cfg.Redis)
 	defer func() {
 		if err := redisClient.Close(); err != nil {
 			logrus.WithError(err).Error("Failed to close Redis connection")
@@ -58,7 +57,7 @@ func main() {
 	}
 
 	for i := 1; i <= 3; i++ {
-		go task_consumer.StartWorker(conn, db, repo, taskCache, i)
+		go task_consumer.StartWorker(conn, psqlDB, repo, taskCache, i)
 	}
 
 	select {}
