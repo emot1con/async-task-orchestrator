@@ -34,15 +34,16 @@ func main() {
 
 	taskCache := cache.NewTaskCache(redisClient)
 
-	conn := queue.SetupRabbitMQ(&cfg.RabbitMQ)
+	manager := queue.SetupRabbitMQ(&cfg.RabbitMQ)
 	defer func() {
-		if err := conn.Close(); err != nil {
-			logrus.Fatalf("Failed to close RabbitMQ connection")
+		if err := manager.Close(); err != nil {
+			logrus.WithError(err).Error("Failed to close RabbitMQ connection")
 		}
 	}()
 
 	repo := task.NewTaskRepository()
 
+	conn := manager.GetConnection()
 	consumerChannel, err := queue.CreateChannel(conn)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to create RabbitMQ channel")
@@ -57,7 +58,7 @@ func main() {
 	}
 
 	for i := 1; i <= 3; i++ {
-		go task_consumer.StartWorker(conn, psqlDB, repo, taskCache, i)
+		go task_consumer.StartWorker(manager, psqlDB, repo, taskCache, i)
 	}
 
 	select {}

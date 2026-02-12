@@ -33,13 +33,14 @@ func main() {
 		}
 	}()
 
-	conn := queue.SetupRabbitMQ(&config.RabbitMQ)
+	manager := queue.SetupRabbitMQ(&config.RabbitMQ)
 	defer func() {
-		if err := conn.Close(); err != nil {
+		if err := manager.Close(); err != nil {
 			logrus.WithError(err).Fatal("Failed to close RabbitMQ connection")
 		}
 	}()
 
+	conn := manager.GetConnection()
 	r := handler.SetupHandler(psqlDB, conn, rdb, config)
 
 	srv := &http.Server{
@@ -56,6 +57,7 @@ func main() {
 			logrus.WithError(err).Fatal("Failed to start server")
 		}
 	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

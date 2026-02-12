@@ -3,34 +3,43 @@ package notification_consumer
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"task_handler/internal/config"
 	"task_handler/internal/domain/user"
 	"task_handler/internal/events"
 	"task_handler/internal/notification"
 	"task_handler/internal/queue"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
 
-func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInterface, workerID int, cfg *config.Config) {
+func StartWorker(manager *queue.RabbitMQManager, DB *sql.DB, repo user.UserRepositoryInterface, workerID int, cfg *config.Config) {
+	for {
+		conn := manager.GetConnection()
+		if err := runWorker(conn, DB, repo, workerID); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "notification_consumer",
+				"error":     err.Error(),
+			}).Error("Worker stopped, restarting in 5 seconds...")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+	}
+}
+
+func runWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInterface, workerID int) error {
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"worker_id": workerID,
-			"service":   "notification_consumer",
-			"error":     err.Error(),
-		}).Fatal("Failed to setup RabbitMQ channel")
+		return fmt.Errorf("failed to setup RabbitMQ channel: %w", err)
 	}
+	defer ch.Close()
 
 	msgs, err := queue.Consume(ch, events.NotificationQueueName)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"worker_id": workerID,
-			"service":   "notification_consumer",
-			"queue":     events.NotificationQueueName,
-			"error":     err.Error(),
-		}).Fatal("Failed to consume messages from queue")
+		return fmt.Errorf("failed to consume messages from queue: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -42,8 +51,23 @@ func StartWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInte
 	emailSender := notification.NewEmailSender()
 	notifHandler := NewNotificationHandler(emailSender, repo, DB)
 
-	for msg := range msgs {
-		handleNotificationEvent(msg, ch, notifHandler)
+	// Listen for channel close to detect connection loss
+	closeNotify := ch.NotifyClose(make(chan *amqp.Error))
+
+	for {
+		select {
+		case msg, ok := <-msgs:
+			if !ok {
+				return fmt.Errorf("message channel closed")
+			}
+			handleNotificationEvent(msg, ch, notifHandler)
+
+		case closeErr := <-closeNotify:
+			if closeErr != nil {
+				return fmt.Errorf("channel closed: %v", closeErr)
+			}
+			return fmt.Errorf("channel closed unexpectedly")
+		}
 	}
 }
 

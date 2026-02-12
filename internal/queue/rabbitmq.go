@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"sync"
 	"task_handler/internal/config"
 	"time"
 
@@ -10,39 +11,134 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *amqp.Connection {
-	var conn *amqp.Connection
-	var err error
+// RabbitMQManager manages RabbitMQ connection with auto-reconnect
+type RabbitMQManager struct {
+	config    *config.RabbitMQConfig
+	conn      *amqp.Connection
+	mu        sync.RWMutex
+	isClosing bool
+}
 
-	maxRetries := 5
-	for i := 0; i < maxRetries; i++ {
-		conn, err = amqp.Dial(rabbitMQCfg.URL) // URL contains credentials, don't log it
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"service":     "rabbitmq",
-				"attempt":     i + 1,
-				"max_retries": maxRetries,
-				"error":       err.Error(),
-			}).Warn("Failed to connect to RabbitMQ")
-			time.Sleep(time.Duration(i+1) * time.Second)
-			continue
-		}
-
-		break
+// NewRabbitMQManager creates a new RabbitMQ manager with auto-reconnect
+func NewRabbitMQManager(rabbitMQCfg *config.RabbitMQConfig) *RabbitMQManager {
+	manager := &RabbitMQManager{
+		config: rabbitMQCfg,
 	}
 
-	if err != nil {
+	// Initial connection
+	manager.connect()
+
+	// Start connection monitor
+	go manager.monitorConnection()
+
+	return manager
+}
+
+// connect establishes connection to RabbitMQ with retry
+func (m *RabbitMQManager) connect() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var err error
+	maxRetries := 10
+	baseDelay := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		if m.isClosing {
+			return
+		}
+
+		m.conn, err = amqp.Dial(m.config.URL)
+		if err == nil {
+			logrus.WithFields(logrus.Fields{
+				"service": "rabbitmq",
+			}).Info("RabbitMQ connection established successfully")
+			return
+		}
+
+		delay := baseDelay * time.Duration(i+1)
 		logrus.WithFields(logrus.Fields{
 			"service":     "rabbitmq",
+			"attempt":     i + 1,
 			"max_retries": maxRetries,
+			"retry_in":    delay.String(),
 			"error":       err.Error(),
-		}).Fatal("Failed to connect to RabbitMQ after retries")
+		}).Warn("Failed to connect to RabbitMQ, retrying...")
+
+		time.Sleep(delay)
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"service": "rabbitmq",
-	}).Info("RabbitMQ connection established successfully")
-	return conn
+		"service":     "rabbitmq",
+		"max_retries": maxRetries,
+		"error":       err.Error(),
+	}).Fatal("Failed to connect to RabbitMQ after all retries")
+}
+
+// monitorConnection monitors connection health and reconnects if needed
+func (m *RabbitMQManager) monitorConnection() {
+	for {
+		if m.isClosing {
+			return
+		}
+
+		m.mu.RLock()
+		conn := m.conn
+		m.mu.RUnlock()
+
+		if conn == nil {
+			time.Sleep(time.Second)
+			continue
+		}
+
+		// Listen for connection close
+		closeNotify := conn.NotifyClose(make(chan *amqp.Error))
+		closeErr := <-closeNotify
+
+		if m.isClosing {
+			return
+		}
+
+		if closeErr != nil {
+			logrus.WithFields(logrus.Fields{
+				"service": "rabbitmq",
+				"error":   closeErr.Error(),
+			}).Warn("RabbitMQ connection closed, attempting to reconnect...")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"service": "rabbitmq",
+			}).Warn("RabbitMQ connection lost, attempting to reconnect...")
+		}
+
+		// Reconnect
+		m.connect()
+	}
+}
+
+// GetConnection returns the current connection
+func (m *RabbitMQManager) GetConnection() *amqp.Connection {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.conn
+}
+
+// Close closes the RabbitMQ connection
+func (m *RabbitMQManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.isClosing = true
+
+	if m.conn != nil && !m.conn.IsClosed() {
+		return m.conn.Close()
+	}
+
+	return nil
+}
+
+// SetupRabbitMQ creates a new RabbitMQ manager and returns it
+func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *RabbitMQManager {
+	return NewRabbitMQManager(rabbitMQCfg)
 }
 
 func CreateChannel(conn *amqp.Connection) (*amqp.Channel, error) {
@@ -85,6 +181,44 @@ func Publish(ch *amqp.Channel, queueName string, body []byte) error {
 			Body:        body,
 		},
 	)
+}
+
+// PublishWithRetry publishes a message with automatic retry on transient failures
+func PublishWithRetry(conn *amqp.Connection, queueName string, body []byte, maxRetries int) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		ch, err := CreateChannel(conn)
+		if err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				time.Sleep(time.Second * time.Duration(attempt+1))
+				continue
+			}
+			break
+		}
+
+		err = Publish(ch, queueName, body)
+		ch.Close()
+
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if attempt < maxRetries {
+			logrus.WithFields(logrus.Fields{
+				"service":     "rabbitmq",
+				"queue":       queueName,
+				"attempt":     attempt + 1,
+				"max_retries": maxRetries,
+				"error":       err.Error(),
+			}).Warn("Failed to publish message, retrying...")
+			time.Sleep(time.Second * time.Duration(attempt+1))
+		}
+	}
+
+	return fmt.Errorf("failed to publish after %d attempts: %w", maxRetries+1, lastErr)
 }
 
 func Consume(ch *amqp.Channel, queueName string) (<-chan amqp.Delivery, error) {

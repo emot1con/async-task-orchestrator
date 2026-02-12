@@ -16,34 +16,35 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) {
+func StartWorker(manager *queue.RabbitMQManager, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) {
+	for {
+		conn := manager.GetConnection()
+		if err := runWorker(conn, db, repo, taskCache, workerID); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"worker_id": workerID,
+				"service":   "task_consumer",
+				"error":     err.Error(),
+			}).Error("Worker stopped, restarting in 5 seconds...")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+	}
+}
+
+func runWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) error {
 	ch, err := conn.Channel()
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"worker_id": workerID,
-			"service":   "task_consumer",
-			"error":     err.Error(),
-		}).Fatal("Failed to open RabbitMQ channel")
+		return fmt.Errorf("failed to open RabbitMQ channel: %w", err)
 	}
 	defer ch.Close()
 
 	if err := ch.Qos(1, 0, false); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"worker_id": workerID,
-			"service":   "task_consumer",
-			"error":     err.Error(),
-		}).Fatal("Failed to set QoS")
+		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
 	msgs, err := queue.Consume(ch, events.TaskQueueName)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"worker_id": workerID,
-			"service":   "task_consumer",
-			"queue":     events.TaskQueueName,
-			"error":     err.Error(),
-		}).Fatal("Failed to start consuming messages")
-		return
+		return fmt.Errorf("failed to start consuming messages: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -52,8 +53,23 @@ func StartWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInte
 		"queue":     events.TaskQueueName,
 	}).Info("Worker started successfully")
 
-	for msg := range msgs {
-		processMessage(ch, db, repo, taskCache, workerID, msg)
+	// Listen for channel close to detect connection loss
+	closeNotify := ch.NotifyClose(make(chan *amqp.Error))
+
+	for {
+		select {
+		case msg, ok := <-msgs:
+			if !ok {
+				return fmt.Errorf("message channel closed")
+			}
+			processMessage(ch, db, repo, taskCache, workerID, msg)
+
+		case closeErr := <-closeNotify:
+			if closeErr != nil {
+				return fmt.Errorf("channel closed: %v", closeErr)
+			}
+			return fmt.Errorf("channel closed unexpectedly")
+		}
 	}
 }
 
