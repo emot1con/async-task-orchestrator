@@ -5,17 +5,34 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Coverage](https://img.shields.io/codecov/c/github/emot1con/task_handler)](https://codecov.io/gh/emot1con/task_handler)
 
-**Production-ready asynchronous task processing system with Go, RabbitMQ, Redis rate limiting, and JWT auth**
+**Production-ready asynchronous task processing system with Go, RabbitMQ auto-reconnect, Redis rate limiting, JWT auth, and ELK Stack observability**
 
-A scalable, distributed task orchestration platform built with Go, featuring comprehensive security (JWT authentication, rate limiting), robust infrastructure (Docker, PostgreSQL, Redis, RabbitMQ), and complete CI/CD pipeline with unit and integration tests.
+A scalable, distributed task orchestration platform built with Go, featuring comprehensive security (JWT authentication, rate limiting), robust infrastructure (Docker, PostgreSQL, Redis, RabbitMQ with auto-reconnect), centralized logging with ELK Stack (Elasticsearch, Logstash, Kibana, Filebeat), and complete CI/CD pipeline with unit and integration tests.
 
 ## Features
 
 ### Core Functionality
 - **Asynchronous Task Processing** - Non-blocking task execution with RabbitMQ
 - **Distributed Workers** - Scalable worker pool for parallel task processing
+  - **Task Worker** - Processes task-related messages (3 concurrent workers)
+  - **Notification Worker** - Handles notification delivery (3 concurrent workers)
 - **Task Status Tracking** - Real-time task status monitoring (PENDING, PROCESSING, SUCCESS, FAILED)
 - **Multiple Task Types** - Support for `send_email`, `generate_report`, `resize_image`, `cleanup_temp`
+- **RabbitMQ Auto-Reconnect** - Resilient connection management with automatic recovery
+  - Connection monitoring with exponential backoff retry (1s to 10s over 10 attempts)
+  - Worker restart loops with graceful degradation
+  - Thread-safe connection pooling with `sync.RWMutex`
+  - 3-layer connection validation (exists, not closed, can create channel)
+
+### Observability & Monitoring
+- **ELK Stack Integration** - Centralized logging and real-time analysis
+  - **Elasticsearch 8.11.0** - High-performance log storage and search engine
+  - **Logstash 8.11.0** - Log processing pipeline with JSON parsing and fingerprinting
+  - **Kibana 8.11.0** - Real-time log visualization and analytics dashboard (http://localhost:5601)
+  - **Filebeat 8.11.0** - Docker container log shipping with autodiscovery
+- **Structured Logging** - JSON-formatted logs with automatic service identification
+- **Log Deduplication** - SHA256 fingerprinting prevents duplicate log entries
+- **Selective Log Collection** - Docker labels (`logging.enabled=true`) for filtered collection
 
 ### Security & Performance
 - **JWT Authentication** - Secure access/refresh token implementation (HS256)
@@ -35,10 +52,16 @@ A scalable, distributed task orchestration platform built with Go, featuring com
 - **Code Coverage** - Codecov integration with coverage reports
 
 ### Infrastructure
-- **Docker Compose** - Complete containerized setup (API, Worker, PostgreSQL, Redis, RabbitMQ)
+- **Docker Compose** - Complete containerized setup with 11 services:
+  - Application: API, Task Worker, Notification Worker
+  - Data Storage: PostgreSQL 15, Redis
+  - Message Queue: RabbitMQ with Management UI
+  - ELK Stack: Elasticsearch, Logstash, Kibana, Filebeat
+  - Database Migration: Automated schema management
 - **PostgreSQL** - Reliable persistent storage with migrations
-- **Health Checks** - Container health monitoring
-- **Structured Logging** - Comprehensive application logging with logrus
+- **Health Checks** - Container health monitoring for Elasticsearch and PostgreSQL
+- **Structured Logging** - Comprehensive application logging with logrus and ELK Stack
+- **Service Labels** - Docker labels for selective log collection (`logging.enabled=true`)
 
 ## Table of Contents
 - [Architecture](#architecture)
@@ -47,6 +70,8 @@ A scalable, distributed task orchestration platform built with Go, featuring com
 - [Configuration](#configuration)
 - [API Documentation](#api-documentation)
 - [Rate Limiting](#rate-limiting)
+- [Observability & Logging](#observability--logging)
+- [RabbitMQ Auto-Reconnect](#rabbitmq-auto-reconnect)
 - [Development](#development)
 - [Testing](#testing)
 - [Project Structure](#project-structure)
@@ -67,11 +92,29 @@ A scalable, distributed task orchestration platform built with Go, featuring com
               │  (Storage)  │            │(Cache/Rate) │   │ (Queue)  │
               └─────────────┘            └─────────────┘   └────┬─────┘
                                                                  │
-                                                                 ▼
-                                                          ┌─────────────┐
-                                                          │   Worker    │
-                                                          │   Pool      │
-                                                          └─────────────┘
+                                    ┌────────────────────────────┼─────────────┐
+                                    │                            │             │
+                                    ▼                            ▼             ▼
+                             ┌─────────────┐            ┌──────────────┐  ┌──────────────┐
+                             │    Task     │            │Notification  │  │  RabbitMQ    │
+                             │   Worker    │            │   Worker     │  │  Manager     │
+                             │ (3 workers) │            │ (3 workers)  │  │(Auto-Recon.) │
+                             └──────┬──────┘            └──────┬───────┘  └──────────────┘
+                                    │                          │
+                                    └──────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │     ELK Stack       │
+                                    ├─────────────────────┤
+                                    │  Filebeat (Shipper) │
+                                    │         ↓           │
+                                    │ Logstash (Process)  │
+                                    │         ↓           │
+                                    │Elasticsearch (Store)│
+                                    │         ↓           │
+                                    │  Kibana (Visualize) │
+                                    └─────────────────────┘
 ```
 
 ### Components
@@ -81,29 +124,52 @@ A scalable, distributed task orchestration platform built with Go, featuring com
    - JWT middleware for authentication
    - Rate limiter middleware (Redis Token Bucket)
    - Task creation and status endpoints
+   - RabbitMQManager integration for resilient messaging
 
-2. **Worker** (`cmd/worker/main.go`)
-   - RabbitMQ consumer
-   - Task processing engine
-   - Status update publisher
+2. **Task Worker** (`cmd/task/main.go`)
+   - RabbitMQ consumer for `task_queue`
+   - Task processing engine (generate_report, resize_image, send_email, cleanup_temp)
+   - Status update publisher to notification queue
+   - Auto-reconnect with worker restart loop
 
-3. **PostgreSQL**
-   - Users table (authentication)
+3. **Notification Worker** (`cmd/notification/main.go`)
+   - RabbitMQ consumer for `notification_queue`
+   - Email notification delivery
+   - Event-driven notification processing
+   - Auto-reconnect with worker restart loop
+
+4. **PostgreSQL**
+   - Users table (authentication data)
    - Tasks table (task tracking with timestamps)
+   - Health checks and automated migrations
 
-4. **Redis**
-   - Rate limiting state (Token Bucket per user)
-   - Session caching (optional)
+5. **Redis**
+   - Rate limiting state (Token Bucket per user/IP)
+   - Task caching for performance optimization
+   - Connection pooling
 
-5. **RabbitMQ**
-   - Task queue (task.created)
-   - Async communication between API and workers
+6. **RabbitMQ with Auto-Reconnect**
+   - Task queue (`task_queue`)
+   - Notification queue (`notification_queue`)
+   - RabbitMQManager pattern with connection monitoring
+   - Exponential backoff retry strategy (1s to 10s)
+   - Thread-safe connection pooling with `sync.RWMutex`
+
+7. **ELK Stack**
+   - **Filebeat**: Collects logs from Docker containers with autodiscovery (label-based filtering)
+   - **Logstash**: Processes JSON logs, deduplicates with SHA256 fingerprinting
+   - **Elasticsearch**: Stores logs with index pattern `app-logs-YYYY.MM.dd`
+   - **Kibana**: Web UI for log visualization at http://localhost:5601
 
 ## Prerequisites
 
 - Docker & Docker Compose
 - Go 1.21+ (for local development)
 - Make (optional, for convenience commands)
+
+**System Resources:**
+- Minimum 4GB RAM (ELK Stack requires ~2GB)
+- 10GB disk space for Docker volumes
 
 ## Quick Start
 
@@ -123,6 +189,8 @@ cp .env.example .env
 
 ### 3. Start All Services
 
+This will start **11 services**: API, Task Worker, Notification Worker, PostgreSQL, Redis, RabbitMQ, Elasticsearch, Logstash, Kibana, Filebeat, and Migrate.
+
 ```bash
 # Using Make
 make up_build
@@ -137,13 +205,25 @@ docker-compose up -d --build
 # Check all containers are running
 docker-compose ps
 
-# Expected output:
-# NAME       STATE    PORTS
-# api        Up       0.0.0.0:8087->8087/tcp
-# worker     Up       
-# postgres   Up       0.0.0.0:5432->5432/tcp
-# redis      Up       0.0.0.0:6379->6379/tcp
-# rabbitmq   Up       0.0.0.0:5672->5672/tcp, 0.0.0.0:15672->15672/tcp
+# Expected output (11 services):
+# NAME                  STATE    PORTS
+# api                   Up       0.0.0.0:8087->8087/tcp
+# task-worker           Up       
+# notification-worker   Up       
+# postgres              Up       0.0.0.0:5432->5432/tcp (healthy)
+# redis                 Up       0.0.0.0:6379->6379/tcp
+# rabbitmq              Up       0.0.0.0:5672->5672/tcp, 0.0.0.0:15672->15672/tcp
+# elasticsearch         Up       0.0.0.0:9200->9200/tcp, 0.0.0.0:9300->9300/tcp (healthy)
+# logstash              Up       0.0.0.0:5044->5044/tcp, 0.0.0.0:9600->9600/tcp
+# kibana                Up       0.0.0.0:5601->5601/tcp
+# filebeat              Up
+# migrate               Exited (0)
+
+# Access UIs
+# - API: http://localhost:8087
+# - RabbitMQ Management: http://localhost:15672 (guest/guest)
+# - Kibana (Logs): http://localhost:5601
+# - Elasticsearch: http://localhost:9200
 ```
 
 ### 5. Test the API
@@ -196,6 +276,8 @@ curl -X GET http://localhost:8087/api/v1/tasks/1 \
 | `REDIS_PORT` | Redis port | `6379` |
 | `RABBITMQ_URL` | RabbitMQ connection URL | `amqp://guest:guest@rabbitmq:5672/` |
 | `JWT_SECRET` | JWT signing secret | `supersecret` |
+| `SERVICE_NAME` | Service identifier for logging | `api` / `task-worker` / `notification-worker` |
+| `GIN_MODE` | Gin framework mode | `release` / `debug` |
 
 **Security Note**: Change `JWT_SECRET` in production!
 
@@ -373,6 +455,365 @@ HTTP 429 Too Many Requests
 
 See [RATE_LIMITER.md](RATE_LIMITER.md) for detailed documentation.
 
+## Observability & Logging
+
+### ELK Stack Architecture
+
+The system uses ELK Stack for centralized logging and real-time monitoring:
+
+```
+Docker Containers (api, task-worker, notification-worker)
+    │
+    │ JSON logs to stdout
+    ├─────────────────────────────────────────────────┐
+    │                                                 │
+    ▼                                                 ▼
+┌─────────────┐                              ┌─────────────┐
+│  Filebeat   │◄─────(autodiscovery)─────────│   Docker    │
+│  (Shipper)  │      label: logging.enabled  │   Daemon    │
+└──────┬──────┘                              └─────────────┘
+       │
+       │ Ship logs (port 5044)
+       ▼
+┌─────────────┐
+│  Logstash   │
+│ (Processor) │
+│             │
+│ • Parse JSON│
+│ • Fingerprint (SHA256)
+│ • Deduplicate
+└──────┬──────┘
+       │
+       │ Index logs
+       ▼
+┌──────────────┐
+│Elasticsearch │
+│   (Storage)  │
+│              │
+│ Index: app-logs-YYYY.MM.dd
+└──────┬───────┘
+       │
+       │ Query API
+       ▼
+┌─────────────┐
+│   Kibana    │
+│(Visualize)  │
+│             │
+│ http://localhost:5601
+└─────────────┘
+```
+
+### Key Features
+
+1. **Automatic Service Tagging**
+   - Each service automatically tagged via `SERVICE_NAME` environment variable
+   - Services: `api`, `task-worker`, `notification-worker`
+
+2. **Log Deduplication**
+   - SHA256 fingerprint created from: timestamp + message + service + worker_id + task_id
+   - Elasticsearch uses fingerprint as `document_id` (upsert instead of insert)
+   - Prevents duplicate logs even with multiple Filebeat restarts
+
+3. **Selective Collection**
+   - Only containers with `logging.enabled=true` label are monitored
+   - Reduces noise from infrastructure containers
+
+4. **Structured Logging**
+   ```json
+   {
+     "level": "info",
+     "service": "task-worker",
+     "worker_id": 1,
+     "task_id": 1234,
+     "task_type": "generate_report",
+     "message": "Processing task",
+     "timestamp": "2026-02-13T10:30:00Z"
+   }
+   ```
+
+### Accessing Logs
+
+**Kibana Dashboard**
+```bash
+# Open Kibana in browser
+open http://localhost:5601
+
+# Create index pattern: app-logs-*
+# Set time field: @timestamp
+```
+
+**Elasticsearch Query**
+```bash
+# Get recent logs
+curl "http://localhost:9200/app-logs-*/_search?size=10&sort=@timestamp:desc"
+
+# Search by service
+curl -X POST "http://localhost:9200/app-logs-*/_search" -H 'Content-Type: application/json' -d'
+{
+  "query": {
+    "match": { "app.service": "task-worker" }
+  }
+}'
+
+# Search by task_id
+curl -X POST "http://localhost:9200/app-logs-*/_search" -H 'Content-Type: application/json' -d'
+{
+  "query": {
+    "match": { "app.task_id": 1234 }
+  }
+}'
+```
+
+### Configuration Files
+
+- **Filebeat**: `internal/logger/filebeat/filebeat.yml`
+  - Docker autodiscovery with label filtering
+  - Registry persistence for restart resilience
+
+- **Logstash**: `internal/logger/logstash/pipeline/logstash.conf`
+  - JSON parsing
+  - SHA256 fingerprinting
+  - Field cleanup
+
+- **Logger Hook**: `internal/logger/logger.go`
+  - Automatic service field injection
+  - Structured logging with logrus
+
+## RabbitMQ Auto-Reconnect
+
+### Overview
+
+The system implements a robust auto-reconnect mechanism for RabbitMQ to handle broker failures, restarts, or network issues without manual intervention.
+
+### Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│              RabbitMQManager                     │
+│                                                  │
+│  ┌────────────────────────────────────────────┐ │
+│  │  Connection Pool (sync.RWMutex)            │ │
+│  │  • Thread-safe access                      │ │
+│  │  • Single connection per service           │ │
+│  └────────────┬───────────────────────────────┘ │
+│               │                                  │
+│  ┌────────────▼───────────────────────────────┐ │
+│  │  Monitor Goroutine                         │ │
+│  │  • Listen to NotifyClose()                 │ │
+│  │  • Trigger reconnect on failure            │ │
+│  └────────────┬───────────────────────────────┘ │
+│               │                                  │
+│  ┌────────────▼───────────────────────────────┐ │
+│  │  Connect with Exponential Backoff          │ │
+│  │  • 10 attempts                             │ │
+│  │  • 1s → 2s → 3s → ... → 10s               │ │
+│  └────────────┬───────────────────────────────┘ │
+│               │                                  │
+│  ┌────────────▼───────────────────────────────┐ │
+│  │  GetConnection() with Validation           │ │
+│  │  • Check connection exists                 │ │
+│  │  • Check !IsClosed()                       │ │
+│  │  • Verify can create channel               │ │
+│  └────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+                        │
+                        ▼
+        ┌───────────────────────────────┐
+        │    Workers (Restart Loop)     │
+        │                               │
+        │  for {                        │
+        │    conn = manager.GetConn()   │
+        │    runWorker(conn)            │
+        │    // on error, wait 5s       │
+        │    sleep(5s)                  │
+        │  }                            │
+        └───────────────────────────────┘
+```
+
+### Key Components
+
+#### 1. **RabbitMQManager** (`internal/queue/rabbitmq.go`)
+
+**Thread-Safe Connection Pool:**
+```go
+type RabbitMQManager struct {
+    config    *config.RabbitMQConfig
+    conn      *amqp.Connection
+    mu        sync.RWMutex  // Protects concurrent access
+    isClosing bool
+}
+```
+
+**Connection Monitoring:**
+```go
+func (m *RabbitMQManager) monitorConnection() {
+    for {
+        closeNotify := conn.NotifyClose(make(chan *amqp.Error))
+        closeErr := <-closeNotify  // Blocks until connection closes
+        
+        if !m.isClosing {
+            log.Warn("Connection closed, reconnecting...")
+            m.connect()  // Trigger reconnect
+        }
+    }
+}
+```
+
+**Exponential Backoff Retry:**
+```go
+func (m *RabbitMQManager) connect() {
+    for i := 0; i < 10; i++ {
+        conn, err := amqp.Dial(m.config.URL)
+        if err == nil {
+            m.conn = conn
+            return
+        }
+        
+        delay := time.Second * time.Duration(i+1)  // 1s, 2s, 3s...
+        time.Sleep(delay)
+    }
+}
+```
+
+**Connection Validation (3-Layer):**
+```go
+func (m *RabbitMQManager) GetConnection() *amqp.Connection {
+    for {
+        conn := m.conn
+        
+        // Layer 1: Check exists and not closed
+        if conn != nil && !conn.IsClosed() {
+            // Layer 2: Verify can create channel (AMQP handshake complete)
+            testCh, err := conn.Channel()
+            if err == nil {
+                testCh.Close()  // Layer 3: Cleanup
+                return conn     // Connection verified ready!
+            }
+        }
+        
+        time.Sleep(500 * time.Millisecond)  // Retry
+    }
+}
+```
+
+#### 2. **Worker Restart Loop** (`internal/consumer/*/worker.go`)
+
+**Infinite Restart Pattern:**
+```go
+func StartWorker(manager *RabbitMQManager, workerID int) {
+    for {
+        // Get fresh connection each iteration
+        conn := manager.GetConnection()
+        
+        // Run worker (blocks until error)
+        err := runWorker(conn, workerID)
+        
+        if err != nil {
+            log.WithError(err).Error("Worker stopped, restarting in 5s...")
+            time.Sleep(5 * time.Second)
+        }
+    }
+}
+
+func runWorker(conn *amqp.Connection, workerID int) error {
+    // Create isolated channel
+    ch, err := conn.Channel()
+    if err != nil {
+        return err
+    }
+    defer ch.Close()
+    
+    // Declare queue (ensures queue exists after reconnect)
+    queue, err := ch.QueueDeclare("task_queue", true, false, false, false, nil)
+    
+    // Monitor both messages and channel close
+    msgs, _ := ch.Consume(queue.Name, "", false, false, false, false, nil)
+    closeNotify := ch.NotifyClose(make(chan *amqp.Error))
+    
+    for {
+        select {
+        case msg := <-msgs:
+            processMessage(msg)
+        case closeErr := <-closeNotify:
+            return fmt.Errorf("channel closed: %v", closeErr)
+        }
+    }
+}
+```
+
+### Usage in Services
+
+**API Service** (`cmd/api/main.go`):
+```go
+manager := queue.SetupRabbitMQ(&config.RabbitMQ)
+defer manager.Close()
+
+// Handler uses manager to get fresh connection when publishing
+handler := handler.SetupHandler(db, manager, redis, config)
+```
+
+**Task Service** (`internal/domain/task/service.go`):
+```go
+func (s *TaskService) CreateTask(task *Task) error {
+    // Get fresh connection from manager
+    conn := s.manager.GetConnection()
+    ch, err := queue.CreateChannel(conn)
+    defer ch.Close()
+    
+    // Publish with confidence (connection is validated)
+    return queue.Publish(ch, "task_queue", eventJSON)
+}
+```
+
+**Worker Services** (`cmd/task/main.go`, `cmd/notification/main.go`):
+```go
+manager := queue.SetupRabbitMQ(&config.RabbitMQ)
+defer manager.Close()
+
+// Start 3 workers with restart loops
+for i := 1; i <= 3; i++ {
+    go worker.StartWorker(manager, i)
+}
+```
+
+### Failure Scenarios
+
+| Scenario | Behavior | Recovery Time |
+|----------|----------|---------------|
+| RabbitMQ restart | Manager detects close → retries with backoff | 1-10 seconds |
+| Network partition | Manager retries 10 times with exponential backoff | Up to 55 seconds |
+| Worker crash | Worker restart loop catches error → wait 5s → restart | 5 seconds |
+| Connection stale | GetConnection() validates → waits until ready | 500ms per retry |
+| Broker overload | Exponential backoff prevents thundering herd | Gradual recovery |
+
+### Testing Auto-Reconnect
+
+```bash
+# Test RabbitMQ restart recovery
+docker stop rabbitmq
+sleep 10
+docker logs task-worker --tail 20  # Should show retry logs
+
+docker start rabbitmq
+sleep 15
+docker logs task-worker --tail 20  # Should show "Worker started successfully"
+
+# Test task creation after reconnect
+curl -X POST "http://localhost:8087/task-handler/api/v1/tasks" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"task_type": "generate_report"}'
+# Should return 201 Created (not 504 error)
+```
+
+### Benefits
+
+✅ **Zero Downtime** - Workers automatically reconnect without manual intervention  
+✅ **No Lost Messages** - Durable queues + manual ACK ensures message persistence  
+✅ **Thread-Safe** - `sync.RWMutex` protects concurrent connection access  
+✅ **Production-Ready** - Handles all failure scenarios gracefully  
+✅ **Gradual Recovery** - Exponential backoff prevents thundering herd  
+
 ## Development
 
 ### Local Development (without Docker)
@@ -545,63 +986,122 @@ Monitor:
 ```
 task_handler/
 ├── cmd/
-│   ├── api/           # API server entry point
+│   ├── api/                    # API server entry point
 │   │   └── main.go
-│   └── worker/        # Worker service entry point
+│   ├── task/                   # Task worker service
+│   │   └── main.go
+│   └── notification/           # Notification worker service
 │       └── main.go
 ├── internal/
-│   ├── auth/          # JWT authentication utilities
-│   ├── cache/         # Redis cache client
-│   ├── config/        # Configuration management
-│   ├── db/            # PostgreSQL client
-│   ├── handler/       # HTTP route handlers
-│   ├── logger/        # Structured logging (logrus)
-│   ├── middleware/    # JWT & Rate limiter middleware
-│   ├── observability/ # Metrics & tracing
-│   ├── queue/         # RabbitMQ client
-│   ├── task/          # Task domain (model, repo, controller)
-│   │   ├── model.go
-│   │   ├── repository.go
-│   │   └── controller.go
-│   ├── user/          # User domain (auth, registration)
-│   │   ├── model.go
-│   │   ├── repository.go
-│   │   ├── service.go
-│   │   └── controller.go
-│   └── worker/        # Task processing logic
-│       └── proc.go
+│   ├── auth/                   # JWT authentication utilities
+│   │   ├── jwt.go
+│   │   └── password.go
+│   ├── cache/                  # Redis cache client
+│   │   └── task_cache.go
+│   ├── config/                 # Configuration management
+│   │   └── config.go
+│   ├── consumer/               # RabbitMQ consumers
+│   │   ├── task_consumer/      # Task queue consumer
+│   │   │   ├── worker.go       # Worker with restart loop
+│   │   │   └── proc_task.go    # Task processing logic
+│   │   └── notification_consumer/  # Notification queue consumer
+│   │       ├── worker.go
+│   │       └── proc_notification.go
+│   ├── db/                     # Database clients
+│   │   ├── postgres.go
+│   │   └── redis.go
+│   ├── domain/                 # Domain-driven design structure
+│   │   ├── task/               # Task domain
+│   │   │   ├── model.go
+│   │   │   ├── repository.go
+│   │   │   ├── service.go
+│   │   │   └── controller.go
+│   │   └── user/               # User domain (auth)
+│   │       ├── model.go
+│   │       ├── repository.go
+│   │       ├── service.go
+│   │       └── controller.go
+│   ├── events/                 # Event definitions
+│   │   ├── base.go
+│   │   ├── builder.go
+│   │   ├── constants.go
+│   │   ├── task_event.go
+│   │   └── user_event.go
+│   ├── handler/                # HTTP route handlers
+│   │   └── handler.go
+│   ├── logger/                 # Logging infrastructure
+│   │   ├── logger.go           # Logrus with service hook
+│   │   ├── filebeat/
+│   │   │   └── filebeat.yml    # Filebeat autodiscovery config
+│   │   └── logstash/
+│   │       ├── config/
+│   │       │   └── logstash.yml
+│   │       └── pipeline/
+│   │           └── logstash.conf  # Log processing pipeline
+│   ├── middleware/             # HTTP middlewares
+│   │   ├── jwt.go
+│   │   ├── logger.go
+│   │   ├── rate_limiter.go
+│   │   └── rate_limiter.lua    # Atomic Redis operations
+│   ├── notification/           # Notification interfaces
+│   │   ├── email_interface.go
+│   │   ├── email_sender.go
+│   │   └── mock_email_sender.go
+│   ├── queue/                  # RabbitMQ client
+│   │   └── rabbitmq.go         # RabbitMQManager with auto-reconnect
+│   ├── router/                 # Route definitions
+│   │   └── router.go
+│   └── utils/                  # Utility functions
+│       └── tx.go               # Transaction helpers
+│   └── utils/                  # Utility functions
+│       └── tx.go               # Transaction helpers
 ├── tests/
-│   └── integration/   # Integration test suite
-│       ├── setup_test.go      # Test environment setup
-│       ├── auth_test.go       # Auth flow tests
-│       ├── task_test.go       # Task CRUD tests
-│       └── cache_test.go      # Cache behavior tests
-├── migrations/        # Database migrations
+│   └── integration/            # Integration test suite
+│       ├── setup_test.go       # Test environment setup
+│       ├── auth_test.go        # Auth flow tests
+│       ├── task_test.go        # Task CRUD tests
+│       └── cache_test.go       # Cache behavior tests
+├── migrations/                 # Database migrations
 │   ├── 001_create_tasks.up.sql
-│   └── 002_add_task_column.up.sql
-├── docker/            # Dockerfiles
+│   ├── 001_create_tasks.down.sql
+│   ├── 002_add_task_column.up.sql
+│   ├── 002_add_task_column.down.sql
+│   ├── 003_change_id_type.up.sql
+│   ├── 004_create_users.up.sql
+│   └── 005_rename_id_to_task_id.up.sql
+├── docker/                     # Dockerfiles
 │   ├── api.Dockerfile
-│   └── worker.Dockerfile
+│   ├── task-worker.Dockerfile
+│   ├── notification-worker.Dockerfile
+│   ├── migrate.Dockerfile
+│   ├── filebeat.Dockerfile
+│   └── logstash.Dockerfile
 ├── .github/
 │   └── workflows/
-│       └── ci.yml     # CI/CD pipeline (unit + integration tests)
-├── reports/           # Task processing results
-├── docker-compose.yaml
+│       └── ci.yml              # CI/CD pipeline
+├── logs/                       # Application logs
+├── docker-compose.yaml         # Full stack orchestration
 ├── go.mod
 ├── go.sum
-├── Makefile
+├── Makefile                    # Development commands
 └── README.md
 ```
 
 ### Key Files
 
-- **`cmd/api/main.go`** - API server bootstrap
-- **`cmd/worker/main.go`** - Worker service bootstrap
+- **`cmd/api/main.go`** - API server bootstrap with RabbitMQManager
+- **`cmd/task/main.go`** - Task worker service with 3 concurrent workers
+- **`cmd/notification/main.go`** - Notification worker service with 3 concurrent workers
+- **`internal/queue/rabbitmq.go`** - RabbitMQManager with auto-reconnect, monitoring, exponential backoff
+- **`internal/consumer/task_consumer/worker.go`** - Worker restart loop with connection refresh
+- **`internal/consumer/notification_consumer/worker.go`** - Notification worker with restart loop
 - **`internal/middleware/rate_limiter.go`** - Token Bucket implementation
 - **`internal/middleware/rate_limiter.lua`** - Atomic Redis operations
-- **`internal/task/controller.go`** - Task HTTP handlers with ownership checks
-- **`internal/user/controller.go`** - Auth endpoints (register, login, refresh)
-- **`internal/worker/proc.go`** - Task processing logic (send_email, generate_report, etc.)
+- **`internal/domain/task/controller.go`** - Task HTTP handlers with ownership checks
+- **`internal/domain/user/controller.go`** - Auth endpoints (register, login, refresh)
+- **`internal/logger/logger.go`** - Logrus with automatic service field injection
+- **`internal/logger/filebeat/filebeat.yml`** - Filebeat autodiscovery configuration
+- **`internal/logger/logstash/pipeline/logstash.conf`** - Log processing with fingerprinting
 - **`tests/integration/`** - Complete integration test suite
 - **`migrations/`** - SQL schema definitions
 - **`.github/workflows/ci.yml`** - Automated CI/CD with unit + integration tests
@@ -651,13 +1151,13 @@ JWT_SECRET=<generate-strong-secret>
 
 3. Scale workers:
 ```bash
-docker-compose up -d --scale worker=3
+docker-compose up -d --scale task-worker=5 --scale notification-worker=5
 ```
 
 4. Monitor services:
-   - Add health check endpoints
-   - Configure monitoring system
-   - Set up log aggregation
+   - Use Kibana for centralized log monitoring (http://localhost:5601)
+   - RabbitMQ Management UI for queue monitoring (http://localhost:15672)
+   - Add Prometheus/Grafana for metrics (optional)
 
 5. Database backups:
 ```bash
@@ -666,10 +1166,12 @@ docker exec postgres pg_dump -U postgres task_db > backup.sql
 
 ### Performance Tuning
 
-- Redis: Enable persistence (RDB/AOF) for rate limit state
-- PostgreSQL: Add indexes on `user_id` and `status` columns
-- RabbitMQ: Adjust prefetch count for workers
-- Nginx: Tune worker_processes and connections
+- **Redis**: Enable persistence (RDB/AOF) for rate limit state
+- **PostgreSQL**: Add indexes on `user_id`, `status`, and `task_type` columns
+- **RabbitMQ**: Adjust prefetch count (QoS) for workers, currently set to 1
+- **Elasticsearch**: Increase heap size for high-volume logging (`ES_JAVA_OPTS=-Xms1g -Xmx1g`)
+- **Logstash**: Tune batch size and workers for log processing throughput
+- **Workers**: Scale horizontally based on queue depth
 
 ## License
 
@@ -692,3 +1194,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - [Redis](https://redis.io/)
 - [PostgreSQL](https://www.postgresql.org/)
 - [golang-jwt](https://github.com/golang-jwt/jwt)
+- [Elastic Stack](https://www.elastic.co/) - ELK Stack for observability
+- [Logrus](https://github.com/sirupsen/logrus) - Structured logging
