@@ -34,6 +34,11 @@ func NewRabbitMQManager(rabbitMQCfg *config.RabbitMQConfig) *RabbitMQManager {
 	return manager
 }
 
+// SetupRabbitMQ creates a new RabbitMQ manager and returns it
+func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *RabbitMQManager {
+	return NewRabbitMQManager(rabbitMQCfg)
+}
+
 // connect establishes connection to RabbitMQ with retry
 func (m *RabbitMQManager) connect() {
 	m.mu.Lock()
@@ -116,10 +121,32 @@ func (m *RabbitMQManager) monitorConnection() {
 }
 
 // GetConnection returns the current connection
+// It waits until connection is ready and verified before returning
 func (m *RabbitMQManager) GetConnection() *amqp.Connection {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.conn
+	for {
+		m.mu.RLock()
+		conn := m.conn
+		m.mu.RUnlock()
+
+		// Check if connection is valid and not closed
+		if conn != nil && !conn.IsClosed() {
+			// Additional check: try to create a temporary channel to verify connection is truly ready
+			testCh, err := conn.Channel()
+			if err == nil {
+				testCh.Close() // Close test channel immediately
+				return conn    // Connection is ready
+			}
+
+			// Connection object exists but not fully ready yet
+			logrus.WithFields(logrus.Fields{
+				"service": "rabbitmq",
+				"error":   err.Error(),
+			}).Debug("Connection exists but not ready yet, waiting...")
+		}
+
+		// Connection not ready, wait a bit before retry
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // Close closes the RabbitMQ connection
@@ -134,11 +161,6 @@ func (m *RabbitMQManager) Close() error {
 	}
 
 	return nil
-}
-
-// SetupRabbitMQ creates a new RabbitMQ manager and returns it
-func SetupRabbitMQ(rabbitMQCfg *config.RabbitMQConfig) *RabbitMQManager {
-	return NewRabbitMQManager(rabbitMQCfg)
 }
 
 func CreateChannel(conn *amqp.Connection) (*amqp.Channel, error) {

@@ -19,6 +19,7 @@ import (
 func StartWorker(manager *queue.RabbitMQManager, db *sql.DB, repo task.TaskRepositoryInterface, taskCache *cache.TaskCache, workerID int) {
 	for {
 		conn := manager.GetConnection()
+
 		if err := runWorker(conn, db, repo, taskCache, workerID); err != nil {
 			logrus.WithFields(logrus.Fields{
 				"worker_id": workerID,
@@ -37,6 +38,11 @@ func runWorker(conn *amqp.Connection, db *sql.DB, repo task.TaskRepositoryInterf
 		return fmt.Errorf("failed to open RabbitMQ channel: %w", err)
 	}
 	defer ch.Close()
+
+	// Declare queue to ensure it exists
+	if _, err := queue.DeclareQueue(ch, events.TaskQueueName); err != nil {
+		return fmt.Errorf("failed to declare RabbitMQ queue: %w", err)
+	}
 
 	if err := ch.Qos(1, 0, false); err != nil {
 		return fmt.Errorf("failed to set QoS: %w", err)

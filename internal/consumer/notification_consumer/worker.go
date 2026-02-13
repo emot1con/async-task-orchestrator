@@ -33,9 +33,14 @@ func StartWorker(manager *queue.RabbitMQManager, DB *sql.DB, repo user.UserRepos
 func runWorker(conn *amqp.Connection, DB *sql.DB, repo user.UserRepositoryInterface, workerID int) error {
 	ch, err := conn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to setup RabbitMQ channel: %w", err)
+		return fmt.Errorf("failed to open RabbitMQ channel: %w", err)
 	}
 	defer ch.Close()
+
+	// Declare queue to ensure it exists
+	if _, err := queue.DeclareQueue(ch, events.NotificationQueueName); err != nil {
+		return fmt.Errorf("failed to declare RabbitMQ queue: %w", err)
+	}
 
 	msgs, err := queue.Consume(ch, events.NotificationQueueName)
 	if err != nil {

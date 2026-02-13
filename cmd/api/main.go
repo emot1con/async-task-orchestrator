@@ -40,8 +40,7 @@ func main() {
 		}
 	}()
 
-	conn := manager.GetConnection()
-	r := handler.SetupHandler(psqlDB, conn, rdb, config)
+	r := handler.SetupHandler(psqlDB, manager, rdb, config)
 
 	srv := &http.Server{
 		Addr:    ":8087",

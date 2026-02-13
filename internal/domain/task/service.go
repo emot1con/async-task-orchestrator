@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,18 +22,18 @@ type TaskServiceInterface interface {
 }
 
 type TaskService struct {
-	repo  TaskRepositoryInterface
-	conn  *amqp.Connection
-	DB    *sql.DB
-	cache *cache.TaskCache
+	repo    TaskRepositoryInterface
+	manager *queue.RabbitMQManager
+	DB      *sql.DB
+	cache   *cache.TaskCache
 }
 
-func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, conn *amqp.Connection, redisClient *redis.Client) TaskServiceInterface {
+func NewTaskService(repo TaskRepositoryInterface, db *sql.DB, manager *queue.RabbitMQManager, redisClient *redis.Client) TaskServiceInterface {
 	return &TaskService{
-		repo:  repo,
-		DB:    db,
-		conn:  conn,
-		cache: cache.NewTaskCache(redisClient),
+		repo:    repo,
+		DB:      db,
+		manager: manager,
+		cache:   cache.NewTaskCache(redisClient),
 	}
 }
 
@@ -64,7 +63,9 @@ func (s *TaskService) CreateTask(task *Task) error {
 		return err
 	}
 
-	ch, err := queue.CreateChannel(s.conn)
+	// Get fresh connection from manager
+	conn := s.manager.GetConnection()
+	ch, err := queue.CreateChannel(conn)
 	if err != nil {
 		return err
 	}

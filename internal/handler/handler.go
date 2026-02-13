@@ -6,6 +6,7 @@ import (
 	"task_handler/internal/config"
 	"task_handler/internal/domain/task"
 	"task_handler/internal/domain/user"
+	"task_handler/internal/queue"
 	"task_handler/internal/router"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +15,7 @@ import (
 )
 
 // SetupHandler initializes all dependencies and routes
-func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Client, cfg *config.Config) *gin.Engine {
+func SetupHandler(db *sql.DB, manager *queue.RabbitMQManager, redisClient *redis.Client, cfg *config.Config) *gin.Engine {
 	r := gin.New()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -32,6 +33,7 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 			redisStatus = "down"
 		}
 
+		conn := manager.GetConnection()
 		if err := checkRabbitMQ(conn); err != nil {
 			c.JSON(503, gin.H{
 				"status": "unhealthy",
@@ -54,7 +56,7 @@ func SetupHandler(db *sql.DB, conn *amqp091.Connection, redisClient *redis.Clien
 
 	// Initialize services
 	userService := user.NewUserService(userRepo, db)
-	taskService := task.NewTaskService(taskRepo, db, conn, redisClient)
+	taskService := task.NewTaskService(taskRepo, db, manager, redisClient)
 
 	// Initialize controllers
 	userController := user.NewUserController(userService, cfg.JWT.Secret)
