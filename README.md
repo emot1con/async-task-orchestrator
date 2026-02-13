@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Coverage](https://img.shields.io/codecov/c/github/emot1con/task_handler)](https://codecov.io/gh/emot1con/task_handler)
 
-**Production-ready asynchronous task processing system with Go, RabbitMQ auto-reconnect, Redis rate limiting, JWT auth, and ELK Stack observability**
+**Asynchronous task processing system with Go, RabbitMQ auto-reconnect, Redis rate limiting, JWT auth, and ELK Stack observability**
 
 A scalable, distributed task orchestration platform built with Go, featuring comprehensive security (JWT authentication, rate limiting), robust infrastructure (Docker, PostgreSQL, Redis, RabbitMQ with auto-reconnect), centralized logging with ELK Stack (Elasticsearch, Logstash, Kibana, Filebeat), and complete CI/CD pipeline with unit and integration tests.
 
