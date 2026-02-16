@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/smtp"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -16,34 +17,123 @@ type EmailConfig struct {
 	SMTPPassword string
 	FromEmail    string
 	FromName     string
+	Timeout      time.Duration
 }
 
 // EmailSender handles email sending operations
 type EmailSender struct {
-	config *EmailConfig
+	config          *EmailConfig
+	fallbackConfigs []*EmailConfig // Alternative SMTP servers
 }
 
 // NewEmailSender creates a new email sender with config from environment
 func NewEmailSender() *EmailSender {
-	return &EmailSender{
-		config: &EmailConfig{
+	primaryConfig := &EmailConfig{
+		SMTPHost:     getEnv("SMTP_HOST", "smtp.gmail.com"),
+		SMTPPort:     getEnv("SMTP_PORT", "587"),
+		SMTPUsername: getEnv("SMTP_USERNAME", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		FromEmail:    getEnv("SMTP_FROM_EMAIL", "noreply@taskhandler.com"),
+		FromName:     getEnv("SMTP_FROM_NAME", "Task Handler"),
+		Timeout:      10 * time.Second,
+	}
+
+	// Fallback SMTP servers (tried if primary fails)
+	fallbackConfigs := []*EmailConfig{
+		// Fallback 1: Try port 465 (SSL) if 587 fails
+		{
 			SMTPHost:     getEnv("SMTP_HOST", "smtp.gmail.com"),
-			SMTPPort:     getEnv("SMTP_PORT", "587"),
+			SMTPPort:     "465",
 			SMTPUsername: getEnv("SMTP_USERNAME", ""),
 			SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 			FromEmail:    getEnv("SMTP_FROM_EMAIL", "noreply@taskhandler.com"),
 			FromName:     getEnv("SMTP_FROM_NAME", "Task Handler"),
+			Timeout:      10 * time.Second,
 		},
+		// Fallback 2: Alternative SMTP (e.g., SendGrid, Mailgun)
+		{
+			SMTPHost:     getEnv("SMTP_FALLBACK_HOST", "smtp.sendgrid.net"),
+			SMTPPort:     getEnv("SMTP_FALLBACK_PORT", "587"),
+			SMTPUsername: getEnv("SMTP_FALLBACK_USERNAME", ""),
+			SMTPPassword: getEnv("SMTP_FALLBACK_PASSWORD", ""),
+			FromEmail:    getEnv("SMTP_FALLBACK_FROM_EMAIL", "noreply@taskhandler.com"),
+			FromName:     getEnv("SMTP_FROM_NAME", "Task Handler"),
+			Timeout:      10 * time.Second,
+		},
+	}
+
+	return &EmailSender{
+		config:          primaryConfig,
+		fallbackConfigs: fallbackConfigs,
 	}
 }
 
-// SendEmail sends an email using SMTP
+// SendEmail sends an email using SMTP with fallback support
 func (e *EmailSender) SendEmail(to, subject, body string) error {
+	// Try primary SMTP
+	err := e.sendEmailWithConfig(e.config, to, subject, body)
+	if err == nil {
+		return nil
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"service":     "email_sender",
+		"smtp_host":   e.config.SMTPHost,
+		"smtp_port":   e.config.SMTPPort,
+		"error":       err.Error(),
+		"retry_count": 0,
+	}).Warn("Primary SMTP failed, trying fallbacks...")
+
+	// Try fallback SMTP servers
+	for i, fallbackConfig := range e.fallbackConfigs {
+		// Skip if fallback not configured
+		if fallbackConfig.SMTPUsername == "" || fallbackConfig.SMTPPassword == "" {
+			continue
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"service":     "email_sender",
+			"smtp_host":   fallbackConfig.SMTPHost,
+			"smtp_port":   fallbackConfig.SMTPPort,
+			"retry_count": i + 1,
+		}).Info("Trying fallback SMTP...")
+
+		err = e.sendEmailWithConfig(fallbackConfig, to, subject, body)
+		if err == nil {
+			logrus.WithFields(logrus.Fields{
+				"service":     "email_sender",
+				"smtp_host":   fallbackConfig.SMTPHost,
+				"smtp_port":   fallbackConfig.SMTPPort,
+				"retry_count": i + 1,
+			}).Info("Email sent successfully via fallback")
+			return nil
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"service":     "email_sender",
+			"smtp_host":   fallbackConfig.SMTPHost,
+			"smtp_port":   fallbackConfig.SMTPPort,
+			"error":       err.Error(),
+			"retry_count": i + 1,
+		}).Warn("Fallback SMTP failed")
+	}
+
+	// All attempts failed
+	return fmt.Errorf("all SMTP servers failed: %w", err)
+}
+
+// sendEmailWithConfig sends email using specific SMTP configuration
+func (e *EmailSender) sendEmailWithConfig(config *EmailConfig, to, subject, body string) error {
+	// Skip if SMTP not configured
+	if config.SMTPUsername == "" || config.SMTPPassword == "" {
+		return fmt.Errorf("SMTP credentials not configured")
+	}
+
 	// SMTP authentication
-	auth := smtp.PlainAuth("", e.config.SMTPUsername, e.config.SMTPPassword, e.config.SMTPHost)
+	auth := smtp.PlainAuth("", config.SMTPUsername, config.SMTPPassword, config.SMTPHost)
 
 	// Build email message
-	from := fmt.Sprintf("%s <%s>", e.config.FromName, e.config.FromEmail)
+	from := fmt.Sprintf("%s <%s>", config.FromName, config.FromEmail)
 	msg := []byte(fmt.Sprintf("From: %s\r\n"+
 		"To: %s\r\n"+
 		"Subject: %s\r\n"+
@@ -52,24 +142,33 @@ func (e *EmailSender) SendEmail(to, subject, body string) error {
 		"\r\n"+
 		"%s\r\n", from, to, subject, body))
 
-	// Send email
-	addr := fmt.Sprintf("%s:%s", e.config.SMTPHost, e.config.SMTPPort)
-	err := smtp.SendMail(addr, auth, e.config.FromEmail, []string{to}, msg)
+	// Send email with timeout
+	addr := fmt.Sprintf("%s:%s", config.SMTPHost, config.SMTPPort)
 
-	if err != nil {
+	// Create channel for result
+	errChan := make(chan error, 1)
+
+	go func() {
+		err := smtp.SendMail(addr, auth, config.FromEmail, []string{to}, msg)
+		errChan <- err
+	}()
+
+	// Wait for result or timeout
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return err
+		}
 		logrus.WithFields(logrus.Fields{
-			"service": "email_sender",
-			"subject": subject,
-			"error":   err.Error(),
-		}).Error("Failed to send email") // Don't log email address (PII)
-		return err
+			"service":   "email_sender",
+			"subject":   subject,
+			"smtp_host": config.SMTPHost,
+			"smtp_port": config.SMTPPort,
+		}).Info("Email sent successfully")
+		return nil
+	case <-time.After(config.Timeout):
+		return fmt.Errorf("SMTP connection timeout after %v", config.Timeout)
 	}
-
-	logrus.WithFields(logrus.Fields{
-		"service": "email_sender",
-		"subject": subject,
-	}).Info("Email sent successfully") // Don't log email address (PII)
-	return nil
 }
 
 // SendTaskSucceddEmail sends notification for completed task
