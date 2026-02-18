@@ -1,7 +1,10 @@
 package notification
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/smtp"
 	"os"
 	"time"
@@ -20,10 +23,19 @@ type EmailConfig struct {
 	Timeout      time.Duration
 }
 
+// ResendConfig holds Resend API configuration
+type ResendConfig struct {
+	APIKey    string
+	FromEmail string
+	FromName  string
+	Timeout   time.Duration
+}
+
 // EmailSender handles email sending operations
 type EmailSender struct {
 	config          *EmailConfig
 	fallbackConfigs []*EmailConfig // Alternative SMTP servers
+	resendConfig    *ResendConfig  // Resend API config
 }
 
 // NewEmailSender creates a new email sender with config from environment
@@ -38,6 +50,14 @@ func NewEmailSender() *EmailSender {
 		Timeout:      10 * time.Second,
 	}
 
+	// Resend API configuration (modern, developer-friendly)
+	resendConfig := &ResendConfig{
+		APIKey:    getEnv("RESEND_API_KEY", ""),
+		FromEmail: getEnv("RESEND_FROM_EMAIL", "noreply@taskhandler.com"),
+		FromName:  getEnv("SMTP_FROM_NAME", "Task Handler"),
+		Timeout:   10 * time.Second,
+	}
+
 	// Fallback SMTP servers (tried if primary fails)
 	fallbackConfigs := []*EmailConfig{
 		// Fallback 1: Try port 465 (SSL) if 587 fails
@@ -50,7 +70,10 @@ func NewEmailSender() *EmailSender {
 			FromName:     getEnv("SMTP_FROM_NAME", "Task Handler"),
 			Timeout:      10 * time.Second,
 		},
-		// Fallback 2: Alternative SMTP (e.g., SendGrid, Mailgun)
+		// Fallback 2: Resend API (if configured)
+		// Note: This is a placeholder, actual Resend logic is in sendViaResend()
+
+		// Fallback 3: Alternative SMTP (e.g., SendGrid, Mailgun)
 		{
 			SMTPHost:     getEnv("SMTP_FALLBACK_HOST", "smtp.sendgrid.net"),
 			SMTPPort:     getEnv("SMTP_FALLBACK_PORT", "587"),
@@ -65,6 +88,7 @@ func NewEmailSender() *EmailSender {
 	return &EmailSender{
 		config:          primaryConfig,
 		fallbackConfigs: fallbackConfigs,
+		resendConfig:    resendConfig,
 	}
 }
 
@@ -84,18 +108,45 @@ func (e *EmailSender) SendEmail(to, subject, body string) error {
 		"retry_count": 0,
 	}).Warn("Primary SMTP failed, trying fallbacks...")
 
+	// Try Resend API first (if configured) - Modern and reliable
+	if e.resendConfig.APIKey != "" {
+		logrus.WithFields(logrus.Fields{
+			"service":     "email_sender",
+			"provider":    "resend",
+			"retry_count": 1,
+		}).Info("Trying Resend API...")
+
+		err = e.sendViaResend(to, subject, body)
+		if err == nil {
+			logrus.WithFields(logrus.Fields{
+				"service":  "email_sender",
+				"provider": "resend",
+			}).Info("Email sent successfully via Resend API")
+			return nil
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"service":     "email_sender",
+			"provider":    "resend",
+			"error":       err.Error(),
+			"retry_count": 1,
+		}).Warn("Resend API failed")
+	}
+
 	// Try fallback SMTP servers
+	startIndex := 2 // Resend was retry 1
 	for i, fallbackConfig := range e.fallbackConfigs {
 		// Skip if fallback not configured
 		if fallbackConfig.SMTPUsername == "" || fallbackConfig.SMTPPassword == "" {
 			continue
 		}
 
+		retryCount := startIndex + i
 		logrus.WithFields(logrus.Fields{
 			"service":     "email_sender",
 			"smtp_host":   fallbackConfig.SMTPHost,
 			"smtp_port":   fallbackConfig.SMTPPort,
-			"retry_count": i + 1,
+			"retry_count": retryCount,
 		}).Info("Trying fallback SMTP...")
 
 		err = e.sendEmailWithConfig(fallbackConfig, to, subject, body)
@@ -104,7 +155,7 @@ func (e *EmailSender) SendEmail(to, subject, body string) error {
 				"service":     "email_sender",
 				"smtp_host":   fallbackConfig.SMTPHost,
 				"smtp_port":   fallbackConfig.SMTPPort,
-				"retry_count": i + 1,
+				"retry_count": retryCount,
 			}).Info("Email sent successfully via fallback")
 			return nil
 		}
@@ -114,12 +165,12 @@ func (e *EmailSender) SendEmail(to, subject, body string) error {
 			"smtp_host":   fallbackConfig.SMTPHost,
 			"smtp_port":   fallbackConfig.SMTPPort,
 			"error":       err.Error(),
-			"retry_count": i + 1,
+			"retry_count": retryCount,
 		}).Warn("Fallback SMTP failed")
 	}
 
 	// All attempts failed
-	return fmt.Errorf("all SMTP servers failed: %w", err)
+	return fmt.Errorf("all email providers failed: %w", err)
 }
 
 // sendEmailWithConfig sends email using specific SMTP configuration
@@ -169,6 +220,59 @@ func (e *EmailSender) sendEmailWithConfig(config *EmailConfig, to, subject, body
 	case <-time.After(config.Timeout):
 		return fmt.Errorf("SMTP connection timeout after %v", config.Timeout)
 	}
+}
+
+// sendViaResend sends email using Resend API
+func (e *EmailSender) sendViaResend(to, subject, body string) error {
+	if e.resendConfig.APIKey == "" {
+		return fmt.Errorf("Resend API key not configured")
+	}
+
+	// Resend API endpoint
+	apiURL := "https://api.resend.com/emails"
+
+	// Build request payload
+	from := fmt.Sprintf("%s <%s>", e.resendConfig.FromName, e.resendConfig.FromEmail)
+	payload := map[string]interface{}{
+		"from":    from,
+		"to":      []string{to},
+		"subject": subject,
+		"html":    body,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", e.resendConfig.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send request with timeout
+	client := &http.Client{
+		Timeout: e.resendConfig.Timeout,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		var errorResp map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&errorResp)
+		return fmt.Errorf("Resend API error (status %d): %v", resp.StatusCode, errorResp)
+	}
+
+	return nil
 }
 
 // SendTaskSucceddEmail sends notification for completed task
