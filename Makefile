@@ -1,6 +1,14 @@
 SHELL := /bin/bash
 
-.PHONY: help up_build api worker app test test-verbose test-coverage test-unit test-integration clean
+# Test database / redis for integration tests (override via env)
+TEST_DB_URL ?= postgres://postgres:postgres@localhost:5432/task_db?sslmode=disable
+TEST_REDIS_ADDR ?= localhost:6379
+
+.PHONY: help up_build api worker app \
+        test test-verbose test-coverage \
+        test-unit test-integration test-integration-ci \
+        test-auth test-controller \
+        clean deps tidy lint fmt vet
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -27,44 +35,51 @@ app: ## Rebuild and restart API + Worker
 	docker-compose down worker api
 	docker-compose up -d worker api --build
 
-test: ## Run all tests
-	go test ./...
+# ── Unit tests (no external dependencies) ───────────────────────────────────
+test-unit: ## Run all unit tests (no DB/Redis required)
+	go test -v -race -count=1 ./tests/unit/...
 
-test-verbose: ## Run tests with verbose output
-	go test -v ./...
+# ── Integration tests (require Postgres + Redis) ─────────────────────────────
+test-integration: ## Run integration tests against local Docker services
+	@echo "Starting Postgres + Redis …"
+	docker compose up -d postgres redis
+	@sleep 3
+	TEST_DATABASE_URL=$(TEST_DB_URL) TEST_REDIS_ADDR=$(TEST_REDIS_ADDR) \
+	  go test -v -race -count=1 -timeout 120s ./tests/integration/...
 
-test-coverage: ## Run tests with coverage report
-	go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+test-integration-ci: ## Run integration tests (CI — expects DB already up)
+	TEST_DATABASE_URL=$(TEST_DB_URL) TEST_REDIS_ADDR=$(TEST_REDIS_ADDR) \
+	  go test -v -race -count=1 -timeout 120s \
+	  -coverprofile=coverage-integration.txt -covermode=atomic \
+	  ./tests/integration/...
+
+# ── All tests ────────────────────────────────────────────────────────────────
+test: ## Run unit tests + integration tests
+	$(MAKE) test-unit
+	$(MAKE) test-integration
+
+test-verbose: ## Run all unit tests with full verbose output
+	go test -v -race -count=1 ./tests/unit/...
+
+test-coverage: ## Unit tests with HTML coverage report
+	go test -v -race -count=1 \
+	  -coverprofile=coverage.txt -covermode=atomic \
+	  ./tests/unit/...
 	go tool cover -html=coverage.txt -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+	@echo "Coverage report: coverage.html"
 
-test-unit: ## Run unit tests only
-	go test -v -short ./...
+# ── Focused test targets ─────────────────────────────────────────────────────
+test-auth: ## Run auth unit tests only
+	go test -v -race -count=1 ./tests/unit/auth/...
 
-test-integration: ## Run integration tests (requires Docker services)
-	@echo "Running integration tests..."
-	@echo "Make sure PostgreSQL, Redis, and RabbitMQ are running!"
-	go test -v -tags=integration -run 'TestAPIIntegration' ./tests/integration/...
+test-controller: ## Run controller unit tests only
+	go test -v -race -count=1 ./tests/unit/task/... ./tests/unit/user/...
 
-test-integration-all: ## Run all integration tests including worker tests (slow)
-	@echo "Running ALL integration tests (including worker tests)..."
-	@echo "Make sure PostgreSQL, Redis, and RabbitMQ are running!"
-	go test -v -tags=integration ./tests/integration/...
-
-test-integration-ci: ## Run integration tests in CI environment
-	go test -v -tags=integration -race -run 'TestAPIIntegration' -coverprofile=coverage-integration.txt ./tests/integration/...
-
-test-rate-limiter: ## Run rate limiter tests
-	go test -v ./internal/middleware -run RateLimiter
-
-test-auth: ## Run auth tests
-	go test -v ./internal/auth
-
-test-controller: ## Run controller tests
-	go test -v ./internal/task -run Controller
+test-middleware: ## Run middleware unit tests only
+	go test -v -race -count=1 ./tests/unit/middleware/...
 
 clean: ## Clean up test artifacts
-	rm -f coverage.txt coverage.html
+	rm -f coverage.txt coverage.html coverage-integration.txt
 	go clean -testcache
 
 deps: ## Download dependencies

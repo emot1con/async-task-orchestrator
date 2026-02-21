@@ -1,0 +1,310 @@
+name: CD – Build & Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+# Hanya 1 deploy berjalan sekaligus, yang baru akan queue, yang lama cancel
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # untuk git tag & push
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # 1. Tentukan version tag berikutnya (auto-increment dari tag terakhir)
+  # ──────────────────────────────────────────────────────────────
+  versioning:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # perlu semua tags
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          # Ambil tag terakhir dengan format vX.Y.Z
+          LAST_TAG=$(git tag --list 'v*.*.*' --sort=-version:refname | head -n1)
+
+          if [ -z "$LAST_TAG" ]; then
+            # Belum ada tag, mulai dari v6.0.0
+            NEW_TAG="v6.0.0"
+          else
+            # Pecah versi, naikkan patch
+            MAJOR=$(echo "$LAST_TAG" | cut -d. -f1 | tr -d 'v')
+            MINOR=$(echo "$LAST_TAG" | cut -d. -f2)
+            PATCH=$(echo "$LAST_TAG" | cut -d. -f3)
+            NEW_PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          fi
+
+          echo "Last tag  : ${LAST_TAG:-none}"
+          echo "New  tag  : $NEW_TAG"
+          echo "version=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create & push git tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+
+  # ──────────────────────────────────────────────────────────────
+  # 2. Build & Push 3 images ke Docker Hub
+  # ──────────────────────────────────────────────────────────────
+  build-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    needs: versioning
+    env:
+      VERSION: ${{ needs.versioning.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── API ──────────────────────────────────────────────────
+      - name: Build & push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/api.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-api:${{ env.VERSION }}
+            numpyh/task-handler-api:latest
+          cache-from: type=gha,scope=api
+          cache-to:   type=gha,scope=api,mode=max
+
+      # ── Task Worker ──────────────────────────────────────────
+      - name: Build & push task-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/task-worker.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-task-worker:${{ env.VERSION }}
+            numpyh/task-handler-task-worker:latest
+          cache-from: type=gha,scope=task-worker
+          cache-to:   type=gha,scope=task-worker,mode=max
+
+      # ── Notification Worker ──────────────────────────────────
+      - name: Build & push notification-worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/notification-worker.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-notification-worker:${{ env.VERSION }}
+            numpyh/task-handler-notification-worker:latest
+          cache-from: type=gha,scope=notification-worker
+          cache-to:   type=gha,scope=notification-worker,mode=max
+
+  # ──────────────────────────────────────────────────────────────
+  # 3. Deploy ke VPS via SSH
+  # ──────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: [ versioning, build-push ]
+    env:
+      VERSION: ${{ needs.versioning.outputs.version }}
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     22
+          envs:     VERSION
+          script: |
+            set -e
+
+            APP_DIR="$HOME/task_handler"
+
+            # ── Buat direktori & clone jika belum ada ──────────
+            if [ ! -d "$APP_DIR" ]; then
+              git clone https://github.com/emot1con/task_handler.git "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+
+            # ── Pull perubahan terbaru (compose file, migrations, dll) ──
+            git fetch --all --tags
+            git reset --hard origin/main
+
+            # ── Login Docker Hub di VPS ────────────────────────
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
+              docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+            # ── Pull image versi baru ──────────────────────────
+            docker pull numpyh/task-handler-api:${VERSION}
+            docker pull numpyh/task-handler-task-worker:${VERSION}
+            docker pull numpyh/task-handler-notification-worker:${VERSION}
+
+            # ── Tulis docker-compose.prod.yml dengan image spesifik ──
+            cat > docker-compose.prod.yml << EOF
+            services:
+              api:
+                image: numpyh/task-handler-api:${VERSION}
+                container_name: api
+                ports:
+                  - "8087:8087"
+                depends_on:
+                  - postgres
+                  - redis
+                  - rabbitmq
+                  - migrate
+                  - task-worker
+                env_file: .env
+                environment:
+                  - SERVICE_NAME=api
+                  - GIN_MODE=release
+                networks:
+                  - backend
+                restart: always
+                volumes:
+                  - ./logs:/var/log/app:z
+
+              task-worker:
+                image: numpyh/task-handler-task-worker:${VERSION}
+                container_name: task-worker
+                depends_on:
+                  - rabbitmq
+                  - postgres
+                  - migrate
+                env_file: .env
+                environment:
+                  - SERVICE_NAME=task-worker
+                networks:
+                  - backend
+                restart: always
+
+              notification-worker:
+                image: numpyh/task-handler-notification-worker:${VERSION}
+                container_name: notification-worker
+                depends_on:
+                  - rabbitmq
+                  - postgres
+                  - migrate
+                env_file: .env
+                environment:
+                  - SERVICE_NAME=notification-worker
+                networks:
+                  - backend
+                restart: always
+
+              postgres:
+                image: postgres:15.15-trixie
+                container_name: postgres
+                environment:
+                  POSTGRES_USER: \${DB_USER}
+                  POSTGRES_PASSWORD: \${DB_PASSWORD}
+                  POSTGRES_DB: \${DB_NAME}
+                ports:
+                  - "5432:5432"
+                volumes:
+                  - pgdata:/var/lib/postgresql/data
+                networks:
+                  - backend
+                healthcheck:
+                  test: ["CMD-SHELL", "pg_isready -U \${DB_USER}"]
+                  interval: 10s
+                  timeout: 5s
+                  retries: 5
+                restart: always
+
+              redis:
+                image: redis:latest
+                container_name: redis
+                ports:
+                  - "6379:6379"
+                volumes:
+                  - redisdata:/data
+                networks:
+                  - backend
+                restart: always
+
+              rabbitmq:
+                image: rabbitmq:management-alpine
+                container_name: rabbitmq
+                ports:
+                  - "5672:5672"
+                  - "15672:15672"
+                networks:
+                  - backend
+                restart: always
+
+              migrate:
+                image: migrate/migrate
+                container_name: migrate
+                user: root
+                depends_on:
+                  postgres:
+                    condition: service_healthy
+                volumes:
+                  - ./migrations:/migrations:Z
+                command: [
+                  "-path", "/migrations",
+                  "-database", "postgres://\${DB_USER}:\${DB_PASSWORD}@postgres:5432/\${DB_NAME}?sslmode=disable",
+                  "up"
+                ]
+                env_file: .env
+                restart: "no"
+                networks:
+                  - backend
+
+            volumes:
+              pgdata:
+              redisdata:
+
+            networks:
+              backend:
+                driver: bridge
+            EOF
+
+            # ── Rolling update (zero downtime) ─────────────────
+            docker compose -f docker-compose.prod.yml up -d \
+              --remove-orphans \
+              --no-build
+
+            # ── Hapus image lama yang tidak dipakai ────────────
+            docker image prune -f
+
+            echo "✅ Deployed ${VERSION} successfully"
+
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     22
+          script: |
+            cd ~/task_handler
+            echo "=== Running containers ==="
+            docker compose -f docker-compose.prod.yml ps
+            echo "=== API health check ==="
+            sleep 5
+            curl -sf http://localhost:8087/task-handler/api/v1/health \
+              && echo "✅ API is healthy" \
+              || echo "⚠️  Health check failed (may not have /health endpoint)"

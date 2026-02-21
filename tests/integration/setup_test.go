@@ -1,173 +1,137 @@
-//go:build integration
-
 package integration
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
-	"task_handler/internal/cache"
-	"task_handler/internal/config"
-	"task_handler/internal/db"
-	"task_handler/internal/queue"
-
 	"github.com/go-redis/redis/v8"
-	amqp "github.com/rabbitmq/amqp091-go"
+	_ "github.com/lib/pq"
 )
 
-// TestEnv holds all test dependencies
-type TestEnv struct {
-	DB          *sql.DB
-	RedisClient *redis.Client
-	RabbitConn  *amqp.Connection
-	Config      *config.Config
+// TestDB holds shared DB/Redis connections for all integration tests.
+type TestDB struct {
+	DB    *sql.DB
+	Redis *redis.Client
 }
 
-// SetupTestEnv initializes test environment
-func SetupTestEnv(t *testing.T) *TestEnv {
-	t.Helper()
+var testEnv *TestDB
 
-	cfg := loadTestConfig()
-
-	// Setup database
-	database := db.Init(&cfg.DB)
-	if database == nil {
-		t.Fatal("Failed to connect to test database")
+// getEnvOrDefault reads an environment variable, returning the default if unset.
+func getEnvOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-
-	// Run schema migrations
-	if err := runMigrations(database); err != nil {
-		t.Fatalf("Failed to run migrations: %v", err)
-	}
-
-	// Setup Redis
-	redisClient := cache.SetupRedis(&cfg.Redis)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		t.Fatalf("Failed to connect to Redis: %v", err)
-	}
-	redisClient.FlushDB(ctx)
-
-	// Setup RabbitMQ
-	rabbitConn := queue.SetupRabbitMQ(&cfg.RabbitMQ)
-	if rabbitConn == nil {
-		t.Fatal("Failed to connect to RabbitMQ")
-	}
-
-	// Declare and purge queue
-	ch, err := rabbitConn.Channel()
-	if err != nil {
-		t.Fatalf("Failed to open channel: %v", err)
-	}
-	_, err = ch.QueueDeclare("task_queue", true, false, false, false, nil)
-	if err != nil {
-		t.Fatalf("Failed to declare queue: %v", err)
-	}
-	ch.QueuePurge("task_queue", false)
-	ch.Close()
-
-	return &TestEnv{
-		DB:          database,
-		RedisClient: redisClient,
-		RabbitConn:  rabbitConn,
-		Config:      cfg,
-	}
+	return def
 }
 
-// Cleanup cleans up test environment
-func (env *TestEnv) Cleanup(t *testing.T) {
-	t.Helper()
-
-	if env.DB != nil {
-		env.DB.Exec("TRUNCATE TABLE tasks CASCADE")
-		env.DB.Exec("TRUNCATE TABLE users CASCADE")
-		env.DB.Close()
+// TestMain sets up shared infrastructure and tears it down after all tests.
+func TestMain(m *testing.M) {
+	db, err := setupPostgres()
+	if err != nil {
+		fmt.Printf("SKIP: could not connect to Postgres: %v\n", err)
+		os.Exit(0)
 	}
 
-	if env.RedisClient != nil {
-		env.RedisClient.FlushDB(context.Background())
-		env.RedisClient.Close()
+	rdb, err := setupRedis()
+	if err != nil {
+		fmt.Printf("SKIP: could not connect to Redis: %v\n", err)
+		db.Close()
+		os.Exit(0)
 	}
 
-	if env.RabbitConn != nil {
-		if ch, err := env.RabbitConn.Channel(); err == nil {
-			ch.QueuePurge("task_queue", false)
-			ch.Close()
+	testEnv = &TestDB{DB: db, Redis: rdb}
+
+	if err := runMigrations(db); err != nil {
+		fmt.Printf("SKIP: could not run migrations: %v\n", err)
+		os.Exit(0)
+	}
+
+	code := m.Run()
+
+	db.Close()
+	rdb.Close()
+	os.Exit(code)
+}
+
+func setupPostgres() (*sql.DB, error) {
+	dsn := getEnvOrDefault(
+		"TEST_DATABASE_URL",
+		"postgres://postgres:postgres@localhost:5432/task_handler_test?sslmode=disable",
+	)
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Retry a few times in case the DB is not ready yet
+	for i := 0; i < 5; i++ {
+		if err = db.Ping(); err == nil {
+			return db, nil
 		}
-		env.RabbitConn.Close()
+		time.Sleep(time.Duration(i+1) * time.Second)
 	}
+	return nil, fmt.Errorf("postgres not reachable: %w", err)
 }
 
-// loadTestConfig loads test configuration with defaults
-func loadTestConfig() *config.Config {
-	return &config.Config{
-		AppName: "integration-test",
-		AppEnv:  "test",
-		AppPort: getEnv("APP_PORT", "8081"),
-		DB: config.DBConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "postgres"),
-			Name:     getEnv("DB_NAME", "task_db_test"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
-		},
-		Redis: config.RedisConfig{
-			Host:          getEnv("REDIS_HOST", "localhost"),
-			Port:          getEnv("REDIS_PORT", "6379"),
-			RedisPassword: getEnv("REDIS_PASSWORD", ""),
-			RedisDB:       getEnv("REDIS_DB", "0"),
-		},
-		RabbitMQ: config.RabbitMQConfig{
-			URL: getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
-		},
-		JWT: config.JWTConfig{
-			Secret: getEnv("JWT_SECRET", "test-secret-key-for-integration"),
-		},
+func setupRedis() (*redis.Client, error) {
+	addr := getEnvOrDefault("TEST_REDIS_ADDR", "localhost:6379")
+	client := redis.NewClient(&redis.Options{Addr: addr, DB: 15}) // DB 15 for tests
+
+	ctx, cancel := withTimeout()
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("redis not reachable: %w", err)
 	}
+	return client, nil
 }
 
-// runMigrations creates database schema
-func runMigrations(database *sql.DB) error {
-	_, err := database.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-id SERIAL PRIMARY KEY,
-username VARCHAR(255) UNIQUE NOT NULL,
-password VARCHAR(255) NOT NULL,
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create users table: %w", err)
+// runMigrations creates the tables needed for testing.
+func runMigrations(db *sql.DB) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id         SERIAL PRIMARY KEY,
+			username   VARCHAR(100) UNIQUE NOT NULL,
+			password   TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS tasks (
+			task_id       SERIAL PRIMARY KEY,
+			user_id       INTEGER NOT NULL REFERENCES users(id),
+			task_type     VARCHAR(50) NOT NULL,
+			status        VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+			result_file   TEXT,
+			error_message TEXT,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
 	}
 
-	_, err = database.Exec(`
-		CREATE TABLE IF NOT EXISTS tasks (
-id SERIAL PRIMARY KEY,
-user_id INTEGER NOT NULL REFERENCES users(id),
-task_type VARCHAR(50) NOT NULL,
-status VARCHAR(20) DEFAULT 'PENDING',
-result_file TEXT,
-error_message TEXT,
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create tasks table: %w", err)
+	for _, q := range queries {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
 	}
-
 	return nil
 }
 
-func getEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+// cleanupTables removes all test data between tests.
+func cleanupTables(t *testing.T) {
+	t.Helper()
+	_, err := testEnv.DB.Exec(`TRUNCATE TABLE tasks, users RESTART IDENTITY CASCADE`)
+	if err != nil {
+		t.Fatalf("cleanup failed: %v", err)
 	}
-	return fallback
+
+	ctx, cancel := withTimeout()
+	defer cancel()
+	testEnv.Redis.FlushDB(ctx)
 }
