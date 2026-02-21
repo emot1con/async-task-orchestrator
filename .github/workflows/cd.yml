@@ -170,57 +170,62 @@ jobs:
     env:
       VERSION: ${{ needs.versioning.outputs.version }}
     steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host:     ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key:      ${{ secrets.VPS_SSH_KEY }}
-          port:     22
-          envs:     VERSION
-          script: |
-            set -e
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'DEPLOY_SCRIPT'
+          set -e
+          VERSION="${{ needs.versioning.outputs.version }}"
 
-            APP_DIR="$HOME/project/task-handler"
-            cd "$APP_DIR"
+          APP_DIR="$HOME/project/task-handler"
+          cd "$APP_DIR"
 
-            # ── Login Docker Hub di VPS ────────────────────────
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-              docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          # ── Login Docker Hub di VPS ────────────────────────
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
+            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-            # ── Update image tag di docker-compose.yaml ────────
-            sed -i "s|numpyh/task-handler-api:.*|numpyh/task-handler-api:${VERSION}|g" docker-compose.yaml
-            sed -i "s|numpyh/task-handler-task-worker:.*|numpyh/task-handler-task-worker:${VERSION}|g" docker-compose.yaml
-            sed -i "s|numpyh/task-handler-notification-worker:.*|numpyh/task-handler-notification-worker:${VERSION}|g" docker-compose.yaml
-            sed -i "s|numpyh/task-handler-migrate:.*|numpyh/task-handler-migrate:${VERSION}|g" docker-compose.yaml
-            sed -i "s|numpyh/task-handler-logstash:.*|numpyh/task-handler-logstash:${VERSION}|g" docker-compose.yaml
-            sed -i "s|numpyh/task-handler-filebeat:.*|numpyh/task-handler-filebeat:${VERSION}|g" docker-compose.yaml
+          # ── Update image tag di docker-compose.yaml ────────
+          sed -i "s|numpyh/task-handler-api:.*|numpyh/task-handler-api:${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-task-worker:.*|numpyh/task-handler-task-worker:${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-notification-worker:.*|numpyh/task-handler-notification-worker:${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-migrate:.*|numpyh/task-handler-migrate:${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-logstash:.*|numpyh/task-handler-logstash:${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-filebeat:.*|numpyh/task-handler-filebeat:${VERSION}|g" docker-compose.yaml
 
-            # ── Pull image versi baru ──────────────────────────
-            docker compose pull api task-worker notification-worker migrate logstash filebeat
+          # ── Pull image versi baru ──────────────────────────
+          docker compose pull api task-worker notification-worker migrate logstash filebeat
 
-            # ── Rolling update app services saja ──────────────
-            docker compose up -d --no-build --remove-orphans \
-              api task-worker notification-worker migrate logstash filebeat
+          # ── Rolling update app services saja ──────────────
+          docker compose up -d --no-build --remove-orphans \
+            api task-worker notification-worker migrate logstash filebeat
 
-            # ── Hapus image lama yang tidak dipakai ────────────
-            docker image prune -f
+          # ── Hapus image lama yang tidak dipakai ────────────
+          docker image prune -f
 
-            echo "✅ Deployed ${VERSION} successfully"
+          echo "✅ Deployed ${VERSION} successfully"
+          DEPLOY_SCRIPT
 
       - name: Verify deployment
-        uses: appleboy/ssh-action@v1
-        with:
-          host:     ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key:      ${{ secrets.VPS_SSH_KEY }}
-          port:     22
-          script: |
-            cd ~/project/task-handler
-            echo "=== Running containers ==="
-            docker compose ps
-            echo "=== API health check ==="
-            sleep 5
-            curl -sf http://localhost:8087/task-handler/api/v1/health \
-              && echo "✅ API is healthy" \
-              || echo "⚠️  Health check failed"
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'VERIFY_SCRIPT'
+          cd ~/project/task-handler
+          echo "=== Running containers ==="
+          docker compose ps
+          echo "=== API health check ==="
+          sleep 5
+          curl -sf http://localhost:8087/task-handler/api/v1/health \
+            && echo "✅ API is healthy" \
+            || echo "⚠️  Health check failed"
+          VERIFY_SCRIPT
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
