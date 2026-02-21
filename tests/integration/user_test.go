@@ -19,7 +19,7 @@ func TestIntegration_UserRepository_CreateAndGetByUsername(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	hashedPwd, err := auth.GeneratePasswordHash("testpassword")
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestIntegration_UserRepository_GetByID(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	hashedPwd, _ := auth.GeneratePasswordHash("pass")
 	id, err := repo.Create(tx, &user.User{Username: "user_get_by_id", Password: hashedPwd})
@@ -100,7 +100,7 @@ func TestIntegration_UserRepository_DuplicateUsername(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	hashedPwd, _ := auth.GeneratePasswordHash("pass")
 	_, err = repo.Create(tx, &user.User{Username: "duplicate_user", Password: hashedPwd})
@@ -110,7 +110,7 @@ func TestIntegration_UserRepository_DuplicateUsername(t *testing.T) {
 	// Second insert with same username should fail
 	tx2, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx2.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	_, err = repo.Create(tx2, &user.User{Username: "duplicate_user", Password: hashedPwd})
 	assert.Error(t, err)
