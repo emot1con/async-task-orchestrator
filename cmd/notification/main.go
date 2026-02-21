@@ -19,7 +19,7 @@ func main() {
 	psqlDB := db.Init(&cfg.DB)
 	defer func() {
 		if err := psqlDB.Close(); err != nil {
-			logrus.WithError(err).Fatal("Failed to close database connection")
+			logrus.WithError(err).Fatal("Failed to closes database connection")
 		}
 	}()
 
