@@ -64,101 +64,101 @@ jobs:
   # ──────────────────────────────────────────────────────────────
   # 2. Build & Push semua custom images ke Docker Hub
   # ──────────────────────────────────────────────────────────────
-  build-push:
-    name: Build & Push Images
-    runs-on: ubuntu-latest
-    needs: versioning
-    env:
-      VERSION: ${{ needs.versioning.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
+  # build-push:
+  #   name: Build & Push Images
+  #   runs-on: ubuntu-latest
+  #   needs: versioning
+  #   env:
+  #     VERSION: ${{ needs.versioning.outputs.version }}
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ── API ──────────────────────────────────────────────────
-      - name: Build & push API
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/api.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-api:${{ env.VERSION }}
-            numpyh/task-handler-api:latest
-          cache-from: type=gha,scope=api
-          cache-to:   type=gha,scope=api,mode=max
+  #     # ── API ──────────────────────────────────────────────────
+  #     - name: Build & push API
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/api.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-api:${{ env.VERSION }}
+  #           numpyh/task-handler-api:latest
+  #         cache-from: type=gha,scope=api
+  #         cache-to:   type=gha,scope=api,mode=max
 
-      # ── Task Worker ──────────────────────────────────────────
-      - name: Build & push task-worker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/task-worker.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-task-worker:${{ env.VERSION }}
-            numpyh/task-handler-task-worker:latest
-          cache-from: type=gha,scope=task-worker
-          cache-to:   type=gha,scope=task-worker,mode=max
+  #     # ── Task Worker ──────────────────────────────────────────
+  #     - name: Build & push task-worker
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/task-worker.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-task-worker:${{ env.VERSION }}
+  #           numpyh/task-handler-task-worker:latest
+  #         cache-from: type=gha,scope=task-worker
+  #         cache-to:   type=gha,scope=task-worker,mode=max
 
-      # ── Notification Worker ──────────────────────────────────
-      - name: Build & push notification-worker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/notification-worker.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-notification-worker:${{ env.VERSION }}
-            numpyh/task-handler-notification-worker:latest
-          cache-from: type=gha,scope=notification-worker
-          cache-to:   type=gha,scope=notification-worker,mode=max
+  #     # ── Notification Worker ──────────────────────────────────
+  #     - name: Build & push notification-worker
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/notification-worker.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-notification-worker:${{ env.VERSION }}
+  #           numpyh/task-handler-notification-worker:latest
+  #         cache-from: type=gha,scope=notification-worker
+  #         cache-to:   type=gha,scope=notification-worker,mode=max
 
-      # ── Migrate ──────────────────────────────────────────────
-      - name: Build & push migrate
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/migrate.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-migrate:${{ env.VERSION }}
-            numpyh/task-handler-migrate:latest
-          cache-from: type=gha,scope=migrate
-          cache-to:   type=gha,scope=migrate,mode=max
+  #     # ── Migrate ──────────────────────────────────────────────
+  #     - name: Build & push migrate
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/migrate.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-migrate:${{ env.VERSION }}
+  #           numpyh/task-handler-migrate:latest
+  #         cache-from: type=gha,scope=migrate
+  #         cache-to:   type=gha,scope=migrate,mode=max
 
-      # ── Logstash ─────────────────────────────────────────────
-      - name: Build & push logstash
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/logstash.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-logstash:${{ env.VERSION }}
-            numpyh/task-handler-logstash:latest
-          cache-from: type=gha,scope=logstash
-          cache-to:   type=gha,scope=logstash,mode=max
+  #     # ── Logstash ─────────────────────────────────────────────
+  #     - name: Build & push logstash
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/logstash.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-logstash:${{ env.VERSION }}
+  #           numpyh/task-handler-logstash:latest
+  #         cache-from: type=gha,scope=logstash
+  #         cache-to:   type=gha,scope=logstash,mode=max
 
-      # ── Filebeat ─────────────────────────────────────────────
-      - name: Build & push filebeat
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/filebeat.Dockerfile
-          push: true
-          tags: |
-            numpyh/task-handler-filebeat:${{ env.VERSION }}
-            numpyh/task-handler-filebeat:latest
-          cache-from: type=gha,scope=filebeat
-          cache-to:   type=gha,scope=filebeat,mode=max
+  #     # ── Filebeat ─────────────────────────────────────────────
+  #     - name: Build & push filebeat
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: docker/filebeat.Dockerfile
+  #         push: true
+  #         tags: |
+  #           numpyh/task-handler-filebeat:${{ env.VERSION }}
+  #           numpyh/task-handler-filebeat:latest
+  #         cache-from: type=gha,scope=filebeat
+  #         cache-to:   type=gha,scope=filebeat,mode=max
 
   # ──────────────────────────────────────────────────────────────
   # 3. Deploy ke VPS via SSH
@@ -179,11 +179,12 @@ jobs:
 
       - name: Deploy via SSH
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'DEPLOY_SCRIPT'
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} bash -s << 'EOF'
           set -e
           VERSION="${{ needs.versioning.outputs.version }}"
-
           APP_DIR="$HOME/project/task-handler"
           cd "$APP_DIR"
 
@@ -210,12 +211,14 @@ jobs:
           docker image prune -f
 
           echo "✅ Deployed ${VERSION} successfully"
-          DEPLOY_SCRIPT
+          EOF
 
       - name: Verify deployment
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'VERIFY_SCRIPT'
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} bash -s << 'EOF'
           cd ~/project/task-handler
           echo "=== Running containers ==="
           docker compose ps
@@ -224,7 +227,7 @@ jobs:
           curl -sf http://localhost:8087/task-handler/api/v1/health \
             && echo "✅ API is healthy" \
             || echo "⚠️  Health check failed"
-          VERIFY_SCRIPT
+          EOF
 
       - name: Cleanup
         if: always()
