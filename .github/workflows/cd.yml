@@ -1,7 +1,9 @@
 name: CD – Build & Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [ "CI" ]
+    types: [ completed ]
     branches: [ main ]
 
 # Hanya 1 deploy berjalan sekaligus, yang baru akan queue, yang lama cancel
@@ -19,6 +21,7 @@ jobs:
   versioning:
     name: Bump Version
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       version: ${{ steps.bump.outputs.version }}
     steps:
