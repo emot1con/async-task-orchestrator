@@ -51,7 +51,7 @@ func main() {
 		logrus.WithFields(logrus.Fields{
 			"service": "api",
 			"port":    "8087",
-		}).Info("Starting HTTP servers")
+		}).Info("Starting HTTP server")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.WithError(err).Fatal("Failed to start server")
 		}

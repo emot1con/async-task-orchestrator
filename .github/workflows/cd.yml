@@ -166,7 +166,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    needs: [ versioning, build-push ]
+    needs: [ versioning ]
     env:
       VERSION: ${{ needs.versioning.outputs.version }}
     steps:
