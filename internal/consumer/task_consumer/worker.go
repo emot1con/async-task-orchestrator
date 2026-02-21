@@ -204,7 +204,7 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 				"task_id":   taskPayload.TaskID,
 				"error":     err.Error(),
 			}).Error("Failed to get task details after success")
-			msg.Nack(false, true)
+			_ = msg.Nack(false, true)
 			return err
 		}
 		return publishTaskCompletedEvent(ch, taskPayload, originalEvent.Metadata.CorrelationID, "result.txt", taskData.UpdatedAt, workerID)
@@ -245,7 +245,7 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 
 	if retryCount >= events.MaxRetries {
 		markAsMaxRetriesReached(db, repo, taskPayload.TaskID, taskPayload.UserID, workerID)
-		msg.Nack(false, false)
+		_ = msg.Nack(false, false)
 		return
 	}
 
@@ -265,7 +265,7 @@ func handleTaskResult(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInte
 			"task_id":   taskPayload.TaskID,
 			"error":     err.Error(),
 		}).Error("Failed to republish message for retry")
-		msg.Nack(false, false)
+		_ = msg.Nack(false, false)
 		return
 	}
 

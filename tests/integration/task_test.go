@@ -61,7 +61,7 @@ func TestIntegration_TaskRepository_GetByID(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	taskID, err := repo.Create(tx, &task.Task{UserID: userID, TaskType: "send_email", Status: "PENDING"})
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestIntegration_TaskRepository_GetByUserID(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	taskTypes := []string{"send_email", "generate_report", "resize_image"}
 	for _, tt := range taskTypes {
@@ -124,7 +124,7 @@ func TestIntegration_TaskRepository_GetByUserID_Pagination(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	for i := 0; i < 5; i++ {
 		_, err := repo.Create(tx, &task.Task{UserID: userID, TaskType: "send_email", Status: "PENDING"})
@@ -156,13 +156,13 @@ func TestIntegration_TaskRepository_MarkProcessing(t *testing.T) {
 	repo := task.NewTaskRepository()
 
 	tx, _ := testEnv.DB.Begin()
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	taskID, _ := repo.Create(tx, &task.Task{UserID: userID, TaskType: "cleanup_temp", Status: "PENDING"})
-	tx.Commit()
+	require.NoError(t, tx.Commit())
 
 	tx2, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx2.Rollback()
+	defer func() { _ = tx2.Rollback() }()
 
 	err = repo.MarkProcessing(tx2, taskID)
 	require.NoError(t, err)
@@ -182,13 +182,13 @@ func TestIntegration_TaskRepository_MarkSuccess(t *testing.T) {
 	repo := task.NewTaskRepository()
 
 	tx, _ := testEnv.DB.Begin()
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	taskID, _ := repo.Create(tx, &task.Task{UserID: userID, TaskType: "generate_report", Status: "PROCESSING"})
-	tx.Commit()
+	require.NoError(t, tx.Commit())
 
 	tx2, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx2.Rollback()
+	defer func() { _ = tx2.Rollback() }()
 
 	err = repo.MarkSuccess(tx2, taskID, "report_2026.pdf")
 	require.NoError(t, err)
@@ -210,13 +210,13 @@ func TestIntegration_TaskRepository_MarkFailed(t *testing.T) {
 	repo := task.NewTaskRepository()
 
 	tx, _ := testEnv.DB.Begin()
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	taskID, _ := repo.Create(tx, &task.Task{UserID: userID, TaskType: "resize_image", Status: "PROCESSING"})
-	tx.Commit()
+	require.NoError(t, tx.Commit())
 
 	tx2, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx2.Rollback()
+	defer func() { _ = tx2.Rollback() }()
 
 	err = repo.MarkFailed(tx2, taskID, "out of memory")
 	require.NoError(t, err)
