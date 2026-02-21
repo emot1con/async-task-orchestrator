@@ -51,7 +51,7 @@ func (s *integrationTaskService) CreateTask(t *task.Task) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	taskID, err := s.repo.Create(tx, t)
 	if err != nil {
@@ -293,7 +293,7 @@ func TestIntegration_Task_Forbidden_OtherUser(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var createResp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &createResp)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &createResp))
 	taskID := int(createResp["task_id"].(float64))
 
 	// Try to get it as another user

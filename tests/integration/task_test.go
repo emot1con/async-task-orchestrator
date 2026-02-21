@@ -16,7 +16,7 @@ func createTestUser(t *testing.T, username string) int {
 	repo := user.NewUserRepository()
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	hashedPwd, _ := auth.GeneratePasswordHash("testpass")
 	id, err := repo.Create(tx, &user.User{Username: username, Password: hashedPwd})
@@ -36,7 +36,7 @@ func TestIntegration_TaskRepository_Create(t *testing.T) {
 
 	tx, err := testEnv.DB.Begin()
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	tk := &task.Task{
 		UserID:   userID,

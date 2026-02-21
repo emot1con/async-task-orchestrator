@@ -268,7 +268,7 @@ func (e *EmailSender) sendViaResend(to, subject, body string) error {
 	// Check response status
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var errorResp map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&errorResp)
+		_ = json.NewDecoder(resp.Body).Decode(&errorResp)
 		return fmt.Errorf("Resend API error (status %d): %v", resp.StatusCode, errorResp)
 	}
 

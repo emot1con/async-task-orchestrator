@@ -108,7 +108,7 @@ func processMessage(ch *amqp.Channel, db *sql.DB, repo task.TaskRepositoryInterf
 			"task_id":   taskPayload.TaskID,
 			"error":     err.Error(),
 		}).Error("Failed to mark task as processing")
-		msg.Nack(false, true)
+		_ = msg.Nack(false, true)
 		return
 	}
 
@@ -125,7 +125,7 @@ func parseAndValidateMessage(db *sql.DB, repo task.TaskRepositoryInterface, msg 
 	var event events.TaskCreatedEvent
 	if err := json.Unmarshal(msg.Body, &event); err != nil {
 		logrus.Error("invalid payload")
-		msg.Nack(false, false)
+		_ = msg.Nack(false, false)
 		return nil, nil, 0, fmt.Errorf("invalid JSON payload")
 	}
 
@@ -145,7 +145,7 @@ func parseAndValidateMessage(db *sql.DB, repo task.TaskRepositoryInterface, msg 
 			"task_id": taskPayload.TaskID,
 			"error":   err.Error(),
 		}).Error("Failed to get task status from database")
-		msg.Nack(false, true)
+		_ = msg.Nack(false, true)
 		return nil, nil, 0, fmt.Errorf("failed to get task status")
 	}
 
@@ -296,18 +296,17 @@ func markAsMaxRetriesReached(db *sql.DB, repo task.TaskRepositoryInterface, task
 func checkTaskStatus(status, eventID string, msg amqp.Delivery, updatedAt time.Time) error {
 	if status != events.StatusPending {
 		if status == events.StatusSuccess {
-			msg.Ack(false) // acknowledge duplicate
+			_ = msg.Ack(false) // acknowledge duplicate
 			return fmt.Errorf("Task %s already completed, skipping", eventID)
 		}
 		if status == events.StatusFailed {
-			msg.Ack(false)
+			_ = msg.Ack(false)
 			return fmt.Errorf("Task %s already failed, skipping", eventID)
-
 		}
 		if status == events.StatusProcessing {
 			processingTime := time.Since(updatedAt)
 			if processingTime < 10*time.Minute {
-				msg.Nack(false, true) // requeue to check later
+				_ = msg.Nack(false, true) // requeue to check later
 				return fmt.Errorf("Task %s being processed by another worker", eventID)
 
 			}
