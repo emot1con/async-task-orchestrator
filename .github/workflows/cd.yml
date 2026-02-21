@@ -177,6 +177,16 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Debug SSH key fingerprint
+        run: |
+          echo "=== Key fingerprint in secret ==="
+          ssh-keygen -l -f ~/.ssh/deploy_key || echo "INVALID KEY FORMAT"
+          echo "=== First/last line of key file ==="
+          head -1 ~/.ssh/deploy_key
+          tail -1 ~/.ssh/deploy_key
+          echo "=== Line count ==="
+          wc -l ~/.ssh/deploy_key
+
       - name: Deploy via SSH
         run: |
           ssh -i ~/.ssh/deploy_key \
