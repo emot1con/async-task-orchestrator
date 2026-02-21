@@ -186,7 +186,7 @@ jobs:
           set -e
           VERSION="${VERSION}"
 
-          APP_DIR="\$HOME/project/task-handler"
+          APP_DIR="/root/project/task-handler"
           cd "\$APP_DIR"
 
           echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
@@ -221,7 +221,7 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o BatchMode=yes \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "cd ~/project/task-handler && docker compose ps && curl -sf http://localhost:8087/task-handler/api/v1/health && echo '✅ API healthy' || echo '⚠️ health check failed'"
+            "cd /root/project/task-handler && docker compose ps && curl -sf http://localhost:8087/task-handler/api/v1/health && echo '✅ API healthy' || echo '⚠️ health check failed'"
 
       - name: Cleanup
         if: always()
