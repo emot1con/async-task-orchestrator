@@ -177,68 +177,52 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Debug SSH key fingerprint
-        run: |
-          echo "=== Key fingerprint in secret ==="
-          ssh-keygen -l -f ~/.ssh/deploy_key || echo "INVALID KEY FORMAT"
-          echo "=== First/last line of key file ==="
-          head -1 ~/.ssh/deploy_key
-          tail -1 ~/.ssh/deploy_key
-          echo "=== Line count ==="
-          wc -l ~/.ssh/deploy_key
-
       - name: Deploy via SSH
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -o StrictHostKeyChecking=no \
-            -o BatchMode=yes \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} bash -s << 'EOF'
+          cat > /tmp/deploy_script.sh << SCRIPT
           set -e
-          VERSION="${{ needs.versioning.outputs.version }}"
-          APP_DIR="$HOME/project/task-handler"
-          cd "$APP_DIR"
+          VERSION="${VERSION}"
 
-          # ── Login Docker Hub di VPS ────────────────────────
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
-            docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          APP_DIR="\$HOME/project/task-handler"
+          cd "\$APP_DIR"
 
-          # ── Update image tag di docker-compose.yaml ────────
-          sed -i "s|numpyh/task-handler-api:.*|numpyh/task-handler-api:${VERSION}|g" docker-compose.yaml
-          sed -i "s|numpyh/task-handler-task-worker:.*|numpyh/task-handler-task-worker:${VERSION}|g" docker-compose.yaml
-          sed -i "s|numpyh/task-handler-notification-worker:.*|numpyh/task-handler-notification-worker:${VERSION}|g" docker-compose.yaml
-          sed -i "s|numpyh/task-handler-migrate:.*|numpyh/task-handler-migrate:${VERSION}|g" docker-compose.yaml
-          sed -i "s|numpyh/task-handler-logstash:.*|numpyh/task-handler-logstash:${VERSION}|g" docker-compose.yaml
-          sed -i "s|numpyh/task-handler-filebeat:.*|numpyh/task-handler-filebeat:${VERSION}|g" docker-compose.yaml
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
-          # ── Pull image versi baru ──────────────────────────
+          sed -i "s|numpyh/task-handler-api:.*|numpyh/task-handler-api:\${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-task-worker:.*|numpyh/task-handler-task-worker:\${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-notification-worker:.*|numpyh/task-handler-notification-worker:\${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-migrate:.*|numpyh/task-handler-migrate:\${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-logstash:.*|numpyh/task-handler-logstash:\${VERSION}|g" docker-compose.yaml
+          sed -i "s|numpyh/task-handler-filebeat:.*|numpyh/task-handler-filebeat:\${VERSION}|g" docker-compose.yaml
+
           docker compose pull api task-worker notification-worker migrate logstash filebeat
-
-          # ── Rolling update app services saja ──────────────
           docker compose up -d --no-build --remove-orphans \
             api task-worker notification-worker migrate logstash filebeat
-
-          # ── Hapus image lama yang tidak dipakai ────────────
           docker image prune -f
 
-          echo "✅ Deployed ${VERSION} successfully"
-          EOF
+          echo "✅ Deployed \${VERSION} successfully"
+          SCRIPT
+
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/deploy_script.sh \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/deploy_script.sh
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "bash /tmp/deploy_script.sh"
 
       - name: Verify deployment
         run: |
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             -o BatchMode=yes \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} bash -s << 'EOF'
-          cd ~/project/task-handler
-          echo "=== Running containers ==="
-          docker compose ps
-          echo "=== API health check ==="
-          sleep 5
-          curl -sf http://localhost:8087/task-handler/api/v1/health \
-            && echo "✅ API is healthy" \
-            || echo "⚠️  Health check failed"
-          EOF
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd ~/project/task-handler && docker compose ps && curl -sf http://localhost:8087/task-handler/api/v1/health && echo '✅ API healthy' || echo '⚠️ health check failed'"
 
       - name: Cleanup
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: rm -f ~/.ssh/deploy_key /tmp/deploy_script.sh
