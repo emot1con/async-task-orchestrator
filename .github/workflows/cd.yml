@@ -62,7 +62,7 @@ jobs:
           git push origin "$VERSION"
 
   # ──────────────────────────────────────────────────────────────
-  # 2. Build & Push 3 images ke Docker Hub
+  # 2. Build & Push semua custom images ke Docker Hub
   # ──────────────────────────────────────────────────────────────
   build-push:
     name: Build & Push Images
@@ -121,6 +121,45 @@ jobs:
           cache-from: type=gha,scope=notification-worker
           cache-to:   type=gha,scope=notification-worker,mode=max
 
+      # ── Migrate ──────────────────────────────────────────────
+      - name: Build & push migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/migrate.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-migrate:${{ env.VERSION }}
+            numpyh/task-handler-migrate:latest
+          cache-from: type=gha,scope=migrate
+          cache-to:   type=gha,scope=migrate,mode=max
+
+      # ── Logstash ─────────────────────────────────────────────
+      - name: Build & push logstash
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/logstash.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-logstash:${{ env.VERSION }}
+            numpyh/task-handler-logstash:latest
+          cache-from: type=gha,scope=logstash
+          cache-to:   type=gha,scope=logstash,mode=max
+
+      # ── Filebeat ─────────────────────────────────────────────
+      - name: Build & push filebeat
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/filebeat.Dockerfile
+          push: true
+          tags: |
+            numpyh/task-handler-filebeat:${{ env.VERSION }}
+            numpyh/task-handler-filebeat:latest
+          cache-from: type=gha,scope=filebeat
+          cache-to:   type=gha,scope=filebeat,mode=max
+
   # ──────────────────────────────────────────────────────────────
   # 3. Deploy ke VPS via SSH
   # ──────────────────────────────────────────────────────────────
@@ -147,153 +186,27 @@ jobs:
           script: |
             set -e
 
-            APP_DIR="$HOME/task_handler"
-
-            # ── Buat direktori & clone jika belum ada ──────────
-            if [ ! -d "$APP_DIR" ]; then
-              git clone https://github.com/emot1con/task_handler.git "$APP_DIR"
-            fi
-
+            APP_DIR="$HOME/project/task-handler"
             cd "$APP_DIR"
-
-            # ── Pull perubahan terbaru (compose file, migrations, dll) ──
-            git fetch --all --tags
-            git reset --hard origin/main
 
             # ── Login Docker Hub di VPS ────────────────────────
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | \
               docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
+            # ── Update image tag di docker-compose.yaml ────────
+            sed -i "s|numpyh/task-handler-api:.*|numpyh/task-handler-api:${VERSION}|g" docker-compose.yaml
+            sed -i "s|numpyh/task-handler-task-worker:.*|numpyh/task-handler-task-worker:${VERSION}|g" docker-compose.yaml
+            sed -i "s|numpyh/task-handler-notification-worker:.*|numpyh/task-handler-notification-worker:${VERSION}|g" docker-compose.yaml
+            sed -i "s|numpyh/task-handler-migrate:.*|numpyh/task-handler-migrate:${VERSION}|g" docker-compose.yaml
+            sed -i "s|numpyh/task-handler-logstash:.*|numpyh/task-handler-logstash:${VERSION}|g" docker-compose.yaml
+            sed -i "s|numpyh/task-handler-filebeat:.*|numpyh/task-handler-filebeat:${VERSION}|g" docker-compose.yaml
+
             # ── Pull image versi baru ──────────────────────────
-            docker pull numpyh/task-handler-api:${VERSION}
-            docker pull numpyh/task-handler-task-worker:${VERSION}
-            docker pull numpyh/task-handler-notification-worker:${VERSION}
+            docker compose pull api task-worker notification-worker migrate logstash filebeat
 
-            # ── Tulis docker-compose.prod.yml dengan image spesifik ──
-            cat > docker-compose.prod.yml << EOF
-            services:
-              api:
-                image: numpyh/task-handler-api:${VERSION}
-                container_name: api
-                ports:
-                  - "8087:8087"
-                depends_on:
-                  - postgres
-                  - redis
-                  - rabbitmq
-                  - migrate
-                  - task-worker
-                env_file: .env
-                environment:
-                  - SERVICE_NAME=api
-                  - GIN_MODE=release
-                networks:
-                  - backend
-                restart: always
-                volumes:
-                  - ./logs:/var/log/app:z
-
-              task-worker:
-                image: numpyh/task-handler-task-worker:${VERSION}
-                container_name: task-worker
-                depends_on:
-                  - rabbitmq
-                  - postgres
-                  - migrate
-                env_file: .env
-                environment:
-                  - SERVICE_NAME=task-worker
-                networks:
-                  - backend
-                restart: always
-
-              notification-worker:
-                image: numpyh/task-handler-notification-worker:${VERSION}
-                container_name: notification-worker
-                depends_on:
-                  - rabbitmq
-                  - postgres
-                  - migrate
-                env_file: .env
-                environment:
-                  - SERVICE_NAME=notification-worker
-                networks:
-                  - backend
-                restart: always
-
-              postgres:
-                image: postgres:15.15-trixie
-                container_name: postgres
-                environment:
-                  POSTGRES_USER: \${DB_USER}
-                  POSTGRES_PASSWORD: \${DB_PASSWORD}
-                  POSTGRES_DB: \${DB_NAME}
-                ports:
-                  - "5432:5432"
-                volumes:
-                  - pgdata:/var/lib/postgresql/data
-                networks:
-                  - backend
-                healthcheck:
-                  test: ["CMD-SHELL", "pg_isready -U \${DB_USER}"]
-                  interval: 10s
-                  timeout: 5s
-                  retries: 5
-                restart: always
-
-              redis:
-                image: redis:latest
-                container_name: redis
-                ports:
-                  - "6379:6379"
-                volumes:
-                  - redisdata:/data
-                networks:
-                  - backend
-                restart: always
-
-              rabbitmq:
-                image: rabbitmq:management-alpine
-                container_name: rabbitmq
-                ports:
-                  - "5672:5672"
-                  - "15672:15672"
-                networks:
-                  - backend
-                restart: always
-
-              migrate:
-                image: migrate/migrate
-                container_name: migrate
-                user: root
-                depends_on:
-                  postgres:
-                    condition: service_healthy
-                volumes:
-                  - ./migrations:/migrations:Z
-                command: [
-                  "-path", "/migrations",
-                  "-database", "postgres://\${DB_USER}:\${DB_PASSWORD}@postgres:5432/\${DB_NAME}?sslmode=disable",
-                  "up"
-                ]
-                env_file: .env
-                restart: "no"
-                networks:
-                  - backend
-
-            volumes:
-              pgdata:
-              redisdata:
-
-            networks:
-              backend:
-                driver: bridge
-            EOF
-
-            # ── Rolling update (zero downtime) ─────────────────
-            docker compose -f docker-compose.prod.yml up -d \
-              --remove-orphans \
-              --no-build
+            # ── Rolling update app services saja ──────────────
+            docker compose up -d --no-build --remove-orphans \
+              api task-worker notification-worker migrate logstash filebeat
 
             # ── Hapus image lama yang tidak dipakai ────────────
             docker image prune -f
@@ -308,11 +221,11 @@ jobs:
           key_path: /tmp/deploy_key
           port:     22
           script: |
-            cd ~/task_handler
+            cd ~/project/task-handler
             echo "=== Running containers ==="
-            docker compose -f docker-compose.prod.yml ps
+            docker compose ps
             echo "=== API health check ==="
             sleep 5
             curl -sf http://localhost:8087/task-handler/api/v1/health \
               && echo "✅ API is healthy" \
-              || echo "⚠️  Health check failed (may not have /health endpoint)"
+              || echo "⚠️  Health check failed"
